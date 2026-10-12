@@ -259,6 +259,24 @@ var Joycon2WebBluetooth = {
     });
   },
 
+  // Not transport: helpers for the Windows rate booster (Joycon2RateBooster.cs).
+  jc2web_is_windows: function () {
+    var platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
+    return /^win/i.test(platform) || /Windows NT/.test(navigator.userAgent) ? 1 : 0;
+  },
+
+  // Follows a link without leaving the page: a custom protocol (the OS starts its app; Chrome asks first) or a
+  // download. Browsers allow both only right after a click or key press, so call it from that frame.
+  jc2web_open_link: function (urlPtr, download) {
+    var a = document.createElement('a');
+    a.href = UTF8ToString(urlPtr);
+    if (download) a.download = '';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  },
+
   jc2web_write: function (handle, servicePtr, characteristicPtr, dataPtr, length) {
     var dev = Jc2.devices[handle];
     if (!dev) return;

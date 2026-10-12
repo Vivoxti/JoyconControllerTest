@@ -5,15 +5,22 @@
 // and requests ThroughputOptimized (Windows 11+), which the native Joycon2Ble.dll gets at 15 ms (~66 Hz).
 // The request lasts while the tool runs; it never touches GATT, so it does not disturb the other app.
 //
-// Usage: Joycon2Boost.exe [AA:BB:CC:DD:EE:FF ...]
-//   It also boosts Joy-Con 2 that are already connected, and watches for new ones (hold SYNC) to boost them
-//   as soon as the browser connects them.
+// Usage: Joycon2Boost.exe [AA:BB:CC:DD:EE:FF ...]   run by hand: also registers joycon2boost:// for this user,
+//                                                   so the game page can start it later (Chrome asks once)
+//        Joycon2Boost.exe joycon2boost://...       how the browser starts it: exits by itself once no Joy-Con 2
+//                                                   has been connected for a minute (e.g. the tab was closed)
+//        Joycon2Boost.exe --unregister              removes joycon2boost://
+//   It boosts Joy-Con 2 that are already connected, and watches for new ones (hold SYNC) to boost them
+//   as soon as the browser connects them. Only one instance runs at a time.
+
+#include <windows.h>
 
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Foundation.Metadata.h>
 #include <winrt/Windows.Devices.Bluetooth.h>
 #include <winrt/Windows.Devices.Bluetooth.Advertisement.h>
+#include <winrt/Windows.Devices.Bluetooth.GenericAttributeProfile.h>
 #include <winrt/Windows.Devices.Enumeration.h>
 #include <winrt/Windows.Storage.Streams.h>
 
@@ -21,21 +28,29 @@
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <map>
 #include <mutex>
 #include <string>
+#include <set>
 #include <string_view>
 #include <thread>
 
 using namespace winrt;
 using namespace winrt::Windows::Devices::Bluetooth;
 using namespace winrt::Windows::Devices::Bluetooth::Advertisement;
+using namespace winrt::Windows::Devices::Bluetooth::GenericAttributeProfile;
 using winrt::Windows::Devices::Enumeration::DeviceInformation;
 using winrt::Windows::Foundation::Metadata::ApiInformation;
 
 namespace
 {
     constexpr uint16_t kNintendoCompanyId = 0x0553;
+    constexpr guid kNintendoService{0xab7de9be, 0x89fe, 0x49ad, {0x82, 0x8f, 0x11, 0x8f, 0x09, 0xdf, 0x7f, 0xd0}};
+    constexpr wchar_t kProtocolKey[] = L"Software\\Classes\\joycon2boost";
+    constexpr char kProtocolPrefix[] = "joycon2boost:";
+    constexpr auto kIdleExit = std::chrono::seconds(60); // browser-started instance only
     constexpr double kSlowIntervalMs = 20.0; // above this we ask again
     constexpr auto kRetryGap = std::chrono::seconds(2);
     constexpr int kMaxRetries = 5;           // in a row, so we never fight the stack forever
@@ -193,41 +208,136 @@ namespace
         });
         if (device.ConnectionStatus() == BluetoothConnectionStatus::Connected) Boost(address, t);
     }
+
+    bool RegisterProtocol()
+    {
+        wchar_t exe[MAX_PATH];
+        if (!GetModuleFileNameW(nullptr, exe, MAX_PATH)) return false;
+        std::wstring command = L"\"" + std::wstring(exe) + L"\" \"%1\"";
+        const wchar_t description[] = L"URL:Joycon2Boost (Joy-Con 2 report rate)";
+
+        HKEY key;
+        if (RegCreateKeyExW(HKEY_CURRENT_USER, kProtocolKey, 0, nullptr, 0, KEY_WRITE, nullptr, &key, nullptr) != ERROR_SUCCESS)
+            return false;
+        bool ok = RegSetValueExW(key, nullptr, 0, REG_SZ, reinterpret_cast<const BYTE*>(description), sizeof description) == ERROR_SUCCESS &&
+                  RegSetValueExW(key, L"URL Protocol", 0, REG_SZ, reinterpret_cast<const BYTE*>(L""), sizeof(wchar_t)) == ERROR_SUCCESS;
+        HKEY open = nullptr;
+        ok = ok && RegCreateKeyExW(key, L"shell\\open\\command", 0, nullptr, 0, KEY_WRITE, nullptr, &open, nullptr) == ERROR_SUCCESS;
+        if (ok)
+        {
+            ok = RegSetValueExW(open, nullptr, 0, REG_SZ, reinterpret_cast<const BYTE*>(command.c_str()),
+                                static_cast<DWORD>((command.size() + 1) * sizeof(wchar_t))) == ERROR_SUCCESS;
+            RegCloseKey(open);
+        }
+        RegCloseKey(key);
+        return ok;
+    }
+
+    /// A connected device is a Joy-Con 2 if it says so, or (no name known) has the Nintendo service in the cache.
+    bool IsJoycon(BluetoothLEDevice const& device)
+    {
+        if (std::wstring_view(device.Name()).starts_with(L"Joy-Con 2")) return true;
+        try
+        {
+            auto result = device.GetGattServicesForUuidAsync(kNintendoService, BluetoothCacheMode::Cached).get();
+            bool found = result.Status() == GattCommunicationStatus::Success && result.Services().Size() > 0;
+            for (auto const& service : result.Services()) service.Close();
+            return found;
+        }
+        catch (hresult_error const&)
+        {
+            return false;
+        }
+    }
+
+    std::set<std::wstring> notJoycons; // device ids already checked
+
+    void TrackConnected()
+    {
+        try
+        {
+            auto connected = DeviceInformation::FindAllAsync(
+                BluetoothLEDevice::GetDeviceSelectorFromConnectionStatus(BluetoothConnectionStatus::Connected)).get();
+            for (auto const& info : connected)
+            {
+                std::wstring id{info.Id()};
+                if (notJoycons.count(id)) continue;
+                auto device = BluetoothLEDevice::FromIdAsync(info.Id()).get();
+                if (!device) continue;
+                {
+                    std::lock_guard lock(mutex);
+                    if (targets.count(device.BluetoothAddress())) continue;
+                }
+                if (IsJoycon(device)) std::thread(Track, device.BluetoothAddress()).detach();
+                else notJoycons.insert(id);
+            }
+        }
+        catch (hresult_error const& e)
+        {
+            std::printf("listing connected devices failed: 0x%08X\n", static_cast<uint32_t>(e.code().value));
+        }
+    }
+
+    bool AnyBoosted()
+    {
+        std::lock_guard lock(mutex);
+        for (auto const& [address, t] : targets)
+            if (t.request) return true;
+        return false;
+    }
 }
 
 int main(int argc, char** argv)
 {
+    bool fromBrowser = false;
+    for (int i = 1; i < argc; i++)
+    {
+        if (_strnicmp(argv[i], kProtocolPrefix, sizeof kProtocolPrefix - 1) == 0) fromBrowser = true;
+        if (std::strcmp(argv[i], "--unregister") == 0)
+        {
+            RegDeleteTreeW(HKEY_CURRENT_USER, kProtocolKey);
+            std::printf("joycon2boost:// removed.\n");
+            return 0;
+        }
+    }
+
+    // One instance: the page may start us again on every press.
+    CreateMutexW(nullptr, FALSE, L"Local\\Joycon2Boost");
+    if (GetLastError() == ERROR_ALREADY_EXISTS)
+    {
+        std::printf("Joycon2Boost is already running.\n");
+        Sleep(1500);
+        return 0;
+    }
+
     init_apartment(apartment_type::multi_threaded);
     if (!ApiInformation::IsMethodPresent(L"Windows.Devices.Bluetooth.BluetoothLEDevice", L"RequestPreferredConnectionParameters"))
     {
         std::printf("RequestPreferredConnectionParameters needs Windows 11.\n");
+        Sleep(5000);
         return 1;
     }
 
-    std::printf("Joycon2Boost: keep this window open while playing; Ctrl+C to stop.\n");
+    if (fromBrowser)
+    {
+        std::printf("Joycon2Boost (started from the browser): closes itself when no Joy-Con 2 is connected for %lld s.\n",
+                    static_cast<long long>(kIdleExit.count()));
+        ShowWindow(GetConsoleWindow(), SW_SHOWMINNOACTIVE); // stay out of the game's way
+    }
+    else
+    {
+        if (RegisterProtocol())
+            std::printf("Registered joycon2boost:// for this user: the game page can start me from now on "
+                        "(Joycon2Boost.exe --unregister to undo).\n");
+        std::printf("Joycon2Boost: keep this window open while playing; Ctrl+C to stop.\n");
+    }
+
     for (int i = 1; i < argc; i++)
     {
         uint64_t address;
         if (ParseAddress(argv[i], address)) std::thread(Track, address).detach();
-        else std::printf("not an address: %s\n", argv[i]);
     }
-
-    // Already connected (only listed when Windows knows the device, e.g. it was paired once).
-    try
-    {
-        auto connected = DeviceInformation::FindAllAsync(
-            BluetoothLEDevice::GetDeviceSelectorFromConnectionStatus(BluetoothConnectionStatus::Connected)).get();
-        for (auto const& info : connected)
-        {
-            auto device = BluetoothLEDevice::FromIdAsync(info.Id()).get();
-            if (device && std::wstring_view(device.Name()).starts_with(L"Joy-Con 2"))
-                std::thread(Track, device.BluetoothAddress()).detach();
-        }
-    }
-    catch (hresult_error const& e)
-    {
-        std::printf("listing connected devices failed: 0x%08X\n", static_cast<uint32_t>(e.code().value));
-    }
+    TrackConnected();
 
     BluetoothLEAdvertisementWatcher watcher;
     watcher.ScanningMode(BluetoothLEScanningMode::Passive);
@@ -245,5 +355,18 @@ int main(int argc, char** argv)
     watcher.Start();
     std::printf("Watching for Joy-Con 2 (hold SYNC), then connect them in the browser.\n");
 
-    for (;;) std::this_thread::sleep_for(std::chrono::hours(1));
+    auto lastActive = std::chrono::steady_clock::now();
+    for (;;)
+    {
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+        TrackConnected();
+        auto now = std::chrono::steady_clock::now();
+        if (AnyBoosted()) lastActive = now;
+        else if (fromBrowser && now - lastActive > kIdleExit)
+        {
+            Log("no Joy-Con 2 connected for %lld s, exiting", static_cast<long long>(kIdleExit.count()));
+            watcher.Stop();
+            std::_Exit(0); // skip static destructors: WinRT callbacks may still be in flight
+        }
+    }
 }

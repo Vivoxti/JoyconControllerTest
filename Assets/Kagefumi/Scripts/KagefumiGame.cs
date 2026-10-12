@@ -16,6 +16,7 @@ namespace Kagefumi
     public class KagefumiGame : MonoBehaviour
     {
         public enum State { Lobby, Countdown, Playing, Paused, GameOver }
+        enum BoostStage { None, Offered, Launched, OfferDownload, Downloaded }
 
         class Slot
         {
@@ -65,7 +66,9 @@ namespace Kagefumi
         State stateBeforePause;
         float baseTimeScale = 1f, shake;
         Vector3 cameraHome;
-        bool rematchReady, noonAnnounced, joyconPickRequested;
+        bool rematchReady, noonAnnounced, joyconPickRequested, boostRequested;
+        BoostStage boostStage;
+        float boostLaunchedAt;
         DayCycle.Phase lastPhase;
 
         void OnEnable()
@@ -110,6 +113,7 @@ namespace Kagefumi
         void Update()
         {
             UpdateJoyconPicking();
+            UpdateRateBoost();
             ProcessDeviceQueues();
             Physics.SyncTransforms();
             UpdateLocks();
@@ -137,6 +141,7 @@ namespace Kagefumi
             var device = control.device;
             // Event-based, so a click or tap shorter than a frame still counts (wasPressedThisFrame misses those).
             if (control == (device as Mouse)?.leftButton || control == (device as Keyboard)?.jKey) joyconPickRequested = true;
+            if (control == (device as Keyboard)?.bKey) boostRequested = true;
             string scheme = null;
             if (device is Gamepad) scheme = "Gamepad";
             else if (device is Joystick) scheme = "Joystick";
@@ -201,6 +206,59 @@ namespace Kagefumi
             if (!requested || !Joycon2.Joycon2Manager.CanRequestController ||
                 CurrentState == State.Playing || CurrentState == State.Countdown) return;
             if (Joycon2.Joycon2Manager.RequestController()) hud.Toast("PICK YOUR JOY-CON 2", Gold, 1.5f);
+        }
+
+        /// <summary>
+        /// Windows + browser: Joy-Con 2 stay at ~17 Hz unless the Joycon2Boost helper runs (see Joycon2RateBooster).
+        /// While one is slow, B starts the helper; if the rate does not go up, the next B downloads it.
+        /// </summary>
+        void UpdateRateBoost()
+        {
+            bool pressed = boostRequested;
+            boostRequested = false;
+            float slow = Joycon2.Joycon2RateBooster.SlowestRate;
+            if (slow <= 0f)
+            {
+                bool helped = boostStage >= BoostStage.Launched && Joycon2.Joycon2Manager.Controllers.Count > 0;
+                if (helped) hud.Toast("JOY-CON 2 BOOSTED", Gold, 1.5f);
+                if (boostStage != BoostStage.None) hud.SetNotice(null);
+                boostStage = BoostStage.None;
+                return;
+            }
+
+            float now = Time.unscaledTime;
+            if (boostStage == BoostStage.None) boostStage = BoostStage.Offered;
+            if (boostStage == BoostStage.Launched && now - boostLaunchedAt > 6f) boostStage = BoostStage.OfferDownload;
+            if (pressed)
+            {
+                if (boostStage == BoostStage.OfferDownload)
+                {
+                    Joycon2.Joycon2RateBooster.DownloadHelper();
+                    boostStage = BoostStage.Downloaded;
+                }
+                else
+                {
+                    Joycon2.Joycon2RateBooster.Launch();
+                    boostStage = BoostStage.Launched;
+                    boostLaunchedAt = now;
+                }
+            }
+
+            switch (boostStage)
+            {
+                case BoostStage.Launched:
+                    hud.SetNotice("Starting Joycon2Boost… allow it in the browser prompt");
+                    break;
+                case BoostStage.OfferDownload:
+                    hud.SetNotice("No helper yet? Press B to download Joycon2Boost.exe, then run it once");
+                    break;
+                case BoostStage.Downloaded:
+                    hud.SetNotice("Run Joycon2Boost.exe from Downloads (More info → Run anyway) — the rate goes up by itself");
+                    break;
+                default:
+                    hud.SetNotice($"Joy-Con 2 at {slow:0} Hz — press B for ~67 Hz (Windows helper)");
+                    break;
+            }
         }
 
         static string JoyconConnectHint => Joycon2.Joycon2Manager.ConnectsOnRequest

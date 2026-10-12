@@ -20,7 +20,7 @@ namespace Kagefumi
 
         Font font;
         Sprite circle;
-        Text bigText, subText, toastText, phaseText, sunHolderText;
+        Text bigText, subText, toastText, phaseText, sunHolderText, noticeText;
         Image backdrop;
         RectTransform bigRect, toastRect, dialIcon;
         Image dialIconImage;
@@ -72,6 +72,10 @@ namespace Kagefumi
             var hint = Label("Hint", root, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 22f), 22, TextAnchor.LowerCenter, FontStyle.Normal);
             hint.text = Hint;
             hint.color = new Color(1f, 1f, 1f, 0.85f);
+
+            noticeText = Label("Notice", root, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 62f), 28, TextAnchor.LowerCenter);
+            noticeText.color = new Color(1f, 0.84f, 0.4f);
+            noticeText.enabled = false;
 
             HideBig();
         }
@@ -142,6 +146,13 @@ namespace Kagefumi
             toastColor = color;
             toastDuration = duration;
             toastTime = 0f;
+        }
+
+        /// <summary>Line above the controls hint (e.g. a Joy-Con 2 tip); null hides it.</summary>
+        public void SetNotice(string text)
+        {
+            noticeText.enabled = text != null;
+            if (text != null) noticeText.text = text;
         }
 
         /// <summary>Line under the sun dial saying who steers the sun; null hides it.</summary>
