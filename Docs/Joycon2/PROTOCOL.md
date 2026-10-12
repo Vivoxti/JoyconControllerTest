@@ -184,7 +184,8 @@ Report ID в BLE-репорте нет; L и R шлют одинаковый ф�
   discovery с `BluetoothCacheMode.Uncached` и ретраями. **Частота репортов:** контроллер сам не просит
   смену connection interval → на Windows 10 интервал 60 мс ≈ **16,7 Гц** (ndeadly); на Windows 11
   `BluetoothLEDevice.RequestPreferredConnectionParameters(ThroughputOptimized)` (так делает joycon2cpp;
-  мы тоже). Частые повторные коннекты подряд → контроллер «глохнет» на несколько минут: нужен back-off.
+  мы тоже) → проверено: 15 мс, ~66 Гц. Запрос действует на соединение, а не на процесс: им можно ускорить и
+  Joy-Con, подключённый Chrome'ом (`Joycon2Boost.exe`), пока объект запроса жив. Частые повторные коннекты подряд → контроллер «глохнет» на несколько минут: нужен back-off.
 - **macOS:** keep-alive 1 Гц; потолок ~66 Гц (connection interval не управляется).
   `NSBluetoothAlwaysUsageDescription`.
 - **Android:** `requestMtu(517)` до подписки (иначе нотификации режутся до 20 байт); GATT-операции
