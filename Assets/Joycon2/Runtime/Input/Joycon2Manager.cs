@@ -332,17 +332,11 @@ namespace Joycon2
                 return;
             }
 
-            Joycon2Side side;
-            if (e.Tag == PickLeft) side = Joycon2Side.Left;
-            else if (e.Tag == PickRight) side = Joycon2Side.Right;
-            else if (text.EndsWith("(L)")) side = Joycon2Side.Left;
-            else if (text.EndsWith("(R)")) side = Joycon2Side.Right;
-            else
-            {
-                // The chooser lists L and R together; without the usual name ask for one side instead.
-                Debug.LogWarning($"[Joycon2] picked \"{text}\": cannot tell L from R by name — use RequestController(Joycon2Side.Left/Right).");
-                return;
-            }
+            // The chooser lists L and R together and Chrome may not know the name ("Unknown or unsupported
+            // device"); then the session reads L/R from the controller itself.
+            Joycon2Side? side = null;
+            if (e.Tag == PickLeft || text.EndsWith("(L)")) side = Joycon2Side.Left;
+            else if (e.Tag == PickRight || text.EndsWith("(R)")) side = Joycon2Side.Right;
 
             foreach (var existing in controllers)
                 if (existing.Address == e.Address)
@@ -353,10 +347,11 @@ namespace Joycon2
             if (controllers.Count >= MaxControllers) return;
 
             var c = BeginConnect(e.Address, side, now);
-            if (c != null) Debug.Log($"[Joycon2] picked {c.Name} {c.AddressText} (\"{text}\"), connecting…");
+            if (c != null) Debug.Log($"[Joycon2] picked {(side == null ? "a Joy-Con 2 (side from the controller)" : c.Name)} " +
+                                     $"{c.AddressText} (name \"{text}\"), connecting…");
         }
 
-        static Joycon2Controller BeginConnect(ulong address, Joycon2Side side, double now)
+        static Joycon2Controller BeginConnect(ulong address, Joycon2Side? side, double now)
         {
             int handle = Transport.Connect(address);
             if (handle <= 0) return null;
@@ -365,7 +360,7 @@ namespace Joycon2
             {
                 Handle = handle,
                 Address = address,
-                Side = side,
+                Side = side ?? Joycon2Side.Left,
                 ConnectStartTime = now,
                 rateWindowStart = now,
             };
@@ -381,6 +376,7 @@ namespace Joycon2
         {
             var session = c.Session;
             session.Update(now);
+            c.Side = session.Side; // may be learned during the handshake
 
             if (session.State == Joycon2Session.SessionState.Failed)
             {

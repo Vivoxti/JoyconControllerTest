@@ -279,7 +279,8 @@ Docs/Joycon2/      этот план + PROTOCOL.md + заметки по рез�
   Нативные транспорты сканируют сами и эти члены игнорируют.
 - ☑ `Joycon2Manager.RequestController(side?)`: фильтр `manufacturerData` company `0x0553` + маска на PID
   (`…67 20` L, `…66 20` R — как в рабочем веб-демо), `optionalServices` = сервис `…7fd0`. Сторона — по
-  запрошенному фильтру или по имени `Joy-Con 2 (L/R)`. `CanRequestController`, `ConnectsOnRequest`.
+  запрошенному фильтру, по имени `Joy-Con 2 (L/R)` или — если Chrome имени не знает («Unknown or
+  unsupported device», так было на Windows) — из info-блока Joy-Con (PID по `0x13014`, шаг `ReadInfo` сессии). `CanRequestController`, `ConnectsOnRequest`.
   Адреса в вебе — локальные id страницы (`web#1`), в логах и оверлее.
 - ☑ **User gesture.** Kagefumi (лобби/пауза/конец матча): **клик мышью или J** → `RequestController()`
   в том же кадре — это внутри окна transient activation Chrome. Если браузер всё же откажет (нет активации),

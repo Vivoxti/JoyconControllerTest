@@ -35,6 +35,9 @@ namespace Joycon2
         public const byte DefaultFeatureMask = 0x37;
 
         // Memory map (SPI flash).
+        public const uint InfoAddress = 0x00013000;                     // factory info: serial, VID/PID, colours
+        public const int InfoProductIdOffset = 0x14;                    // u16 LE, same PID as in the advertisement
+        public const int InfoReadLength = 0x20;
         public const uint FactoryStickCalibrationAddress = 0x000130A8; // stick 1; stick 2 at +0x40
         public const int FactoryStick2Offset = 0x40;
         public const uint UserStickCalibrationAddress = 0x001FC040;    // 2-byte header, stick 1 at +2; stick 2 at +0x22

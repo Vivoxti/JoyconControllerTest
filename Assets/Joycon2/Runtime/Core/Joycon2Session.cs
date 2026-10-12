@@ -26,8 +26,8 @@ namespace Joycon2
     /// Drive it with <see cref="OnConnected"/>, <see cref="OnSubscribed"/>, <see cref="OnNotification"/>
     /// and <see cref="Update"/>; it calls back into <see cref="IJoycon2Link"/>.
     ///
-    /// Handshake (PROTOCOL.md): subscribe responses → read user calibration → (factory calibration) →
-    /// player LED → feature mask set → feature mask enable → subscribe input.
+    /// Handshake (PROTOCOL.md): subscribe responses → (read info: L/R, only when the side is unknown) →
+    /// read user calibration → (factory calibration) → player LED → feature mask set → feature mask enable → subscribe input.
     /// Failed command steps are skipped; only a failed input subscription fails the session.
     /// </summary>
     public sealed class Joycon2Session
@@ -38,7 +38,7 @@ namespace Joycon2
         public enum SessionState { Connecting, Handshake, Ready, Failed }
         public enum CalibrationSource { Default, Factory, User }
 
-        enum Step { None, SubscribeResponses, ReadUserCalibration, ReadFactoryCalibration, SetLed, SetFeatureMask, EnableFeatures, SubscribeInput, Done }
+        enum Step { None, SubscribeResponses, ReadInfo, ReadUserCalibration, ReadFactoryCalibration, SetLed, SetFeatureMask, EnableFeatures, SubscribeInput, Done }
 
         const int UserCalibrationReadLength = 0x30;
         const int FactoryCalibrationReadLength = Joycon2Protocol.FactoryStick2Offset + Joycon2StickCalibration.Length;
@@ -54,7 +54,10 @@ namespace Joycon2
         double lastWriteTime;
         byte playerLed;
 
-        public Joycon2Side Side { get; }
+        /// <summary>L or R. When the session starts without it (Web Bluetooth gives no advertisement data and maybe
+        /// no name) it is read from the controller's info block; Left until then.</summary>
+        public Joycon2Side Side { get; private set; }
+        public bool SideKnown { get; private set; }
         public SessionState State { get; private set; } = SessionState.Connecting;
         public string Status { get; private set; } = "connecting";
         public Joycon2StickCalibration Calibration { get; private set; } = Joycon2StickCalibration.Default;
@@ -67,11 +70,12 @@ namespace Joycon2
 
         public Action<string> Log;
 
-        public Joycon2Session(IJoycon2Link link, Joycon2Side side, Joycon2SessionOptions options = null)
+        public Joycon2Session(IJoycon2Link link, Joycon2Side? side, Joycon2SessionOptions options = null)
         {
             this.link = link ?? throw new ArgumentNullException(nameof(link));
             this.options = options ?? new Joycon2SessionOptions();
-            Side = side;
+            Side = side ?? Joycon2Side.Left;
+            SideKnown = side != null;
         }
 
         /// <summary>LED pattern (4-bit mask). Sent during the handshake and re-sent as keep-alive.</summary>
@@ -102,7 +106,7 @@ namespace Joycon2
                     responsesAvailable = false;
                     Warn($"command responses unavailable (status {status}); continuing without them");
                 }
-                Begin(Step.ReadUserCalibration, now);
+                Begin(Step.ReadInfo, now);
             }
             else if (step == Step.SubscribeInput && tag == TagInput)
             {
@@ -144,7 +148,7 @@ namespace Joycon2
                 case Step.SubscribeResponses:
                     responsesAvailable = false;
                     Warn("no answer to the command-response subscription; continuing without responses");
-                    Begin(Step.ReadUserCalibration, now);
+                    Begin(Step.ReadInfo, now);
                     break;
                 case Step.SubscribeInput:
                     Fail("input subscription timed out");
@@ -178,6 +182,10 @@ namespace Joycon2
                 case Step.SubscribeResponses:
                     link.Subscribe(Joycon2Protocol.CommandResponseUuid, TagCommandResponse);
                     deadline = now + options.SubscribeTimeout;
+                    break;
+                case Step.ReadInfo:
+                    if (SideKnown || !responsesAvailable) { Advance(now); return; }
+                    SendCommand(Joycon2Protocol.ReadMemory(Joycon2Protocol.InfoAddress, Joycon2Protocol.InfoReadLength), now);
                     break;
                 case Step.ReadUserCalibration:
                     if (!responsesAvailable) { Advance(now); return; }
@@ -232,12 +240,30 @@ namespace Joycon2
                 for (int i = 0; i < 4; i++)
                     if (data[12 + i] != pendingCommand[12 + i]) return;
 
-                if (step == Step.ReadUserCalibration)
+                if (step == Step.ReadInfo)
+                    TryReadSide(data, length);
+                else if (step == Step.ReadUserCalibration)
                     TryUseCalibration(data, length, Joycon2Protocol.UserStick1Offset, Joycon2Protocol.UserStick2Offset, CalibrationSource.User);
                 else if (step == Step.ReadFactoryCalibration)
                     TryUseCalibration(data, length, 0, Joycon2Protocol.FactoryStick2Offset, CalibrationSource.Factory);
             }
             Advance(now);
+        }
+
+        void TryReadSide(byte[] data, int length)
+        {
+            int at = Joycon2Protocol.MemoryReadDataOffset + Joycon2Protocol.InfoProductIdOffset;
+            if (length < at + 2) return;
+            ushort pid = (ushort)(data[at] | data[at + 1] << 8);
+            if (pid == Joycon2Protocol.ProductIdLeft) Side = Joycon2Side.Left;
+            else if (pid == Joycon2Protocol.ProductIdRight) Side = Joycon2Side.Right;
+            else
+            {
+                Warn($"info block: unexpected product id 0x{pid:X4}");
+                return;
+            }
+            SideKnown = true;
+            Log?.Invoke($"info block: product id 0x{pid:X4} → {Side}");
         }
 
         void TryUseCalibration(byte[] data, int length, int stick1, int stick2, CalibrationSource source)
@@ -262,6 +288,7 @@ namespace Joycon2
             Status = "ready";
             lastWriteTime = now;
             if (CalibratedFrom == CalibrationSource.Default) Warn("no stick calibration read; using defaults");
+            if (!SideKnown) Warn("could not read L/R from the controller; assuming Left");
         }
 
         void Write(byte[] data, double now)

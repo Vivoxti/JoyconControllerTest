@@ -294,6 +294,36 @@ namespace Joycon2.Tests
         }
 
         [Test]
+        public void Session_UnknownSide_ReadFromInfoBlock()
+        {
+            var link = new FakeLink();
+            var s = new Joycon2Session(link, null);
+            Assert.IsFalse(s.SideKnown);
+            s.OnConnected(0);
+            s.OnSubscribed(Joycon2Session.TagCommandResponse, 0, 0);
+            CollectionAssert.AreEqual(Joycon2Protocol.ReadMemory(Joycon2Protocol.InfoAddress, Joycon2Protocol.InfoReadLength), link.Last);
+
+            var info = new byte[Joycon2Protocol.InfoReadLength];
+            info[0x12] = 0x7E; info[0x13] = 0x05; // VID
+            info[0x14] = 0x66; info[0x15] = 0x20; // PID: Joy-Con 2 (R)
+            Respond(s, Ack(link.Last, info), 0.1);
+            Assert.IsTrue(s.SideKnown);
+            Assert.AreEqual(Joycon2Side.Right, s.Side);
+            CollectionAssert.AreEqual(Joycon2Protocol.ReadMemory(Joycon2Protocol.UserStickCalibrationAddress, 0x30), link.Last,
+                                      "handshake continues with the calibration");
+        }
+
+        [Test]
+        public void Session_KnownSide_SkipsInfoRead()
+        {
+            var link = new FakeLink();
+            var s = new Joycon2Session(link, Joycon2Side.Left);
+            s.OnConnected(0);
+            s.OnSubscribed(Joycon2Session.TagCommandResponse, 0, 0);
+            CollectionAssert.AreEqual(Joycon2Protocol.ReadMemory(Joycon2Protocol.UserStickCalibrationAddress, 0x30), link.Last);
+        }
+
+        [Test]
         public void Session_UserCalibrationSkipsFactoryRead()
         {
             var link = new FakeLink();
