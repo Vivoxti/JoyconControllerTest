@@ -10,7 +10,7 @@
 >
 > Протокол (UUID, команды, разметка репорта): [PROTOCOL.md](PROTOCOL.md).
 
-Последнее обновление: 2026-10-12. Unity 6000.3.18f1, Input System 1.19.0.
+Последнее обновление: 2026-10-12 (Фазы 1 и A: код готов). Unity 6000.3.18f1, Input System 1.19.0.
 
 ---
 
@@ -167,22 +167,33 @@ Docs/Joycon2/      этот план + PROTOCOL.md + заметки по рез�
 **Выход:** «да, оба Joy-Con работают по BLE на Win и Mac» или конкретный блокер. Если демо не
 работает — дальше не идём, сначала разбираемся с адаптером/прошивкой.
 
-### Фаза 1 — Общее C#-ядро + Input System ☐
+### Фаза 1 — Общее C#-ядро + Input System ◐ (код готов, ждёт железа)
 
-- ☐ `Joycon2Report`: парсинг 63-байтного репорта (кнопки 32 бит, стики 12-бит упакованные,
-  IMU/батарея — на будущее). См. PROTOCOL.md §5.
-- ☐ `Joycon2Session`: handshake-FSM (PROTOCOL.md §4): подписка на command-response → чтение
-  info-блока → чтение калибровки → player LED → feature mask → подписка на input. Таймауты и ретраи.
-- ☐ Калибровка стиков (user-слот, fallback на factory) с учётом квирка правого Joy-Con
-  (данные во 2-м поле, калибровка из 1-го слота). Мёртвая зона.
-- ☐ `Joycon2Mapping`: маппинг бокового хвата → `GamepadState` (таблица ниже, проверить на железе).
-- ☐ `Joycon2Gamepad : Gamepad`, регистрация layout, `InputSystem.AddDevice` при подключении,
-  `RemoveDevice` при обрыве (Kagefumi освободит слот по `onDeviceChange`).
-- ☐ `Joycon2Manager`: MonoBehaviour/`RuntimeInitializeOnLoadMethod`, выбор транспорта по платформе,
-  опрос событий в `InputSystem.onBeforeUpdate`, назначение player LED (P1 `0x01`, P2 `0x03`) по
-  порядку подключения или по слоту Kagefumi.
-- ☐ Дебаг-оверлей + запись дампов. EditMode-тесты на фикстурах.
-- ☐ `NullTransport` + «фейковый» транспорт, проигрывающий дамп → можно гонять игру в Editor без железа.
+Код: `Assets/Joycon2/Runtime/` (asmdef `Joycon2.Runtime`). `Core/` — чистый C# без UnityEngine
+(тестируется и в Unity, и через `dotnet test`).
+
+- ☑ `Joycon2Report`: парсинг 63-байтного репорта (кнопки 32 бит, стики 12-бит упакованные,
+  батарея, IMU). См. PROTOCOL.md.
+- ☑ `Joycon2Session`: handshake-FSM: подписка на command-response → user-калибровка →
+  (factory-калибровка) → player LED → feature mask `0x37` set/enable → подписка на input.
+  Ожидание ответа по `[cmd]/[sub]` (+ адрес для чтения памяти), таймаут 1 с × 2 попытки, пропуск
+  неответившего шага, «слепой» режим без ответов. Keep-alive LED раз в 1 с.
+- ☑ Калибровка стиков (user-слот, fallback factory, fallback 2048 ± 1250) с учётом квирка правого
+  Joy-Con. Мёртвую зону не делаем сами — её даёт процессор `stickDeadzone` у `Gamepad.leftStick`.
+- ☑ `Joycon2Mapping`: маппинг бокового хвата (таблица ниже) → нейтральное `Joycon2PadState`
+  → `GamepadState`. **На железе не проверен.**
+- ☑ `Joycon2Gamepad : Gamepad` (layout по интерфейсу `"Joycon2"`, `canRunInBackground`),
+  `AddDevice` после handshake, `RemoveDevice` при обрыве.
+- ☑ `Joycon2Manager` (static, `RuntimeInitializeOnLoadMethod`): транспорт по платформе, опрос в
+  `InputSystem.onBeforeUpdate`, автоконнект к Joy-Con в режиме SYNC, скан только пока подключено
+  меньше `MaxControllers` (2), back-off 3 с на адрес, таймаут коннекта 20 с, остановка при выходе из
+  Play Mode / перезагрузке домена. LED — наименьший свободный индекс, а Kagefumi при `Join`
+  переназначает его по слоту (`Joycon2Manager.SetPlayerIndex`, одна строка в `KagefumiGame.Join`).
+- ☑ Дебаг-оверлей (F9) + запись сырых репортов в `persistentDataPath/Joycon2Dumps` (F10).
+- ☑ EditMode-тесты ядра (`Assets/Joycon2/Tests/EditMode`, 22 шт.): байты команд сверены с
+  захватами сообщества, парсер, калибровка, маппинг, handshake с фейковым линком. Пока на
+  синтетике — дополнить фикстурами из дампов с железа.
+- ☐ «Фейковый» транспорт, проигрывающий дамп → гонять игру в Editor без железа (`NullTransport` есть).
 
 Маппинг «боком» (Joy-Con держат горизонтально, рельса SL/SR сверху) — **гипотеза, сверить на железе**:
 
@@ -205,19 +216,54 @@ Docs/Joycon2/      этот план + PROTOCOL.md + заметки по рез�
 Проверка Фазы 1 — Editor, фейковый транспорт с дампом: Kagefumi видит два «Joy-Con 2» как два
 `Gamepad`, игроки ходят и топают.
 
-### Фаза A — Windows (Standalone + Editor) ☐
+### Фаза A — Windows (Standalone + Editor) ◐ (работает на железе, цифры ещё не записаны)
 
-- ☐ `Native/windows`: C++/WinRT DLL. `BluetoothLEAdvertisementWatcher` с фильтром manufacturer data
-  (company `0x0553`, PID `0x2066/0x2067`) → `BluetoothLEDevice::FromBluetoothAddressAsync` →
-  `GattSession::MaintainConnection = true` → GATT-сервис → `WriteValueWithResultAsync(WriteWithoutResponse)`
-  и `ValueChanged` → кольцевой буфер.
-- ☐ Не спаривать через «Параметры Windows» (Joy-Con рвёт SMP-pairing).
-- ☐ Работает в **Editor** (Mono) и в билде (IL2CPP и Mono) — один и тот же DLL. Проверить
-  выгрузку/перезагрузку домена в Editor: при выходе из Play Mode корректно отключаться.
-- ☐ Два Joy-Con одновременно, 10 минут без обрывов, частота ≥ 60 Гц.
+- ☑ `Native/windows`: C++/WinRT DLL `Joycon2Ble.dll` (CMake + Ninja, статический CRT → не нужен
+  VC++ redist). Сборка: `powershell -File Native/windows/build.ps1` (кладёт DLL в
+  `Assets/Joycon2/Plugins/Windows/x86_64/`; **Editor держит DLL залоченной — перед пересборкой
+  закрыть Unity**). Устройство:
+  - passive `BluetoothLEAdvertisementWatcher`, фильтр manufacturer data по company id, троттлинг
+    250 мс на адрес; PID и режим SYNC разбирает C#;
+  - `FromBluetoothAddressAsync(addr, addressType)` → `GattSession.MaintainConnection = true` →
+    `RequestPreferredConnectionParameters(ThroughputOptimized)` (Win11) → `GetGattServicesAsync(Uncached)`
+    с ретраями → все характеристики в кэш; лог интервала соединения и MTU;
+  - подписка: `ValueChanged` + CCCD Notify; запись: `WriteValueWithResultAsync(WriteWithoutResponse)`;
+  - один поток-воркер на устройство (операции строго по порядку), WinRT-колбэки только кладут события
+    в очередь, C# забирает их через `jc2_poll_event` — никаких колбэков через границу.
+- ☑ Smoke-тест DLL без Unity (консольный probe): скан реальной рекламы (Apple `0x004C`) → события
+  доходят, `jc2_shutdown` 4 мс, повторный `jc2_init` работает. Joy-Con'ов в тесте ещё не было.
+- ☑ Не спаривать через «Параметры Windows» (Joy-Con рвёт SMP-pairing) — код никогда не вызывает pairing.
+- ☑ **Проверка на железе** (2026-10-12, со слов пользователя: «на винде работает хорошо»; Гц/интервал не записаны): Play → зажать SYNC на Joy-Con → `[Joycon2] … ready as gamepad`
+  в консоли, оверлей F9 показывает кнопки/стики/Гц; маппинг «боком» сверить с таблицей.
+- ☐ Проверка в билде (Mono и IL2CPP) — тот же DLL. Выход из Play Mode / перезагрузка домена
+  отключают контроллеры (реализовано, не проверено).
+- ☐ Два Joy-Con одновременно, 10 минут без обрывов, частота ≥ 60 Гц (риск: потолок частоты на Windows,
+  см. PROTOCOL.md, «Платформенные заметки»).
 
 Почему не C# WinRT напрямую: Unity Editor (Mono) не потребляет WinRT-проекции «из коробки»,
 а играть хочется прямо в Editor. Нативный DLL работает везде одинаково.
+
+### Фаза A+ — Гироскоп и механика SUN GRAB ◐ (поза проверена на железе, механику — наиграть)
+
+- ☑ IMU в Input System: `Joycon2GamepadState` = `GamepadState` + `angularVelocity` (°/с) +
+  `acceleration` (g) + `attitude` (поза). Оси пересчитаны в систему «боком» (`Joycon2MotionAxes`),
+  дрейф гироскопа вычитается (`Joycon2GyroBias`, учится в покое). Оверлей F9 — строки gyro/accel/attitude.
+- ☑ Оси на железе (2026-10-13): после исправления (+Y IMU к торцу L/R, +X к правому краю) наклоны
+  солнца в тестовом режиме совпали с ожидаемыми. Масштаб гироскопа отдельно (360°) не мерили.
+- ☑ Ориентация `Joycon2Orientation`: интеграл гироскопа + коррекция наклона по гравитации; dt — по
+  IMU-таймстемпу `0x2A`, если он вменяемый. Ноль (`attitude` = identity):
+  - без учёта поворота вокруг вертикали — повернуться корпусом ≠ наклонить, дрейф по горизонтали не мешает;
+  - ставится сам через 1,5 с после начала IMU-данных, **по Select** (Capture на L, Home на R), и тихо
+    в начале каждого матча Kagefumi;
+  - **автоцентр**: ноль за ~20 с подтягивается к позе, в которой Joy-Con держат обычно (только позы
+    в пределах 30° от нуля; большие наклоны его не тянут); выключается на время управления солнцем.
+- ☑ Kagefumi, **SUN GRAB** (`Assets/Kagefumi/Scripts/SunGrab.cs`): каждые 15 с игры (только днём)
+  отстающий по очкам игрок, если он на Joy-Con 2, на 10 с получает солнце. Наклон Joy-Con наклоняет
+  солнце от его текущего места на траектории (×1,5, до 80°, не ниже 5° над горизонтом): наклон вправо —
+  солнце вправо, тени влево. Ход солнца на это время замирает, потом оно за ~0,6 с возвращается.
+  При ничьей, ночью и для не-Joy-Con устройств не срабатывает. Параметры — поля компонента.
+  Тестовый режим «солнце из зенита» удалён.
+- ☐ Наиграть и подобрать коэффициенты (gain, длительность, интервал, автоцентр).
 
 ### Фаза B/C — WebGL, Chrome/Edge на Windows и macOS ☐
 
@@ -295,6 +341,7 @@ Docs/Joycon2/      этот план + PROTOCOL.md + заметки по рез�
 |---|---|---|
 | Протокол — результат реверса сообщества; обновление прошивки Joy-Con может что-то сломать | Перестанет подключаться | Фиксируем версию прошивки в TEST_LOG; парсер с проверками длины, логирование сырых байт |
 | Слабый встроенный BT-адаптер / Windows 10 | Обрывы, низкий Гц, не держит 2 устройства | Тестируем на Win 11; держим под рукой USB BT 5.x донгл |
+| Windows: контроллер не просит короткий connection interval | Win10 ≈ 16,7 Гц; на Win11 зависит от того, примет ли стек `ThroughputOptimized` | Просим `ThroughputOptimized`, логируем фактический интервал; если < 60 Гц — искать обход (повторный запрос после handshake, донгл) |
 | Web: `requestDevice` требует жеста пользователя | Chooser не открывается | Вызов из DOM-обработчика в `.jslib` |
 | Web: в каком сервисе vibration-характеристики | Нет доступа к вибрации без `optionalServices` | Выясняем в Фазе 0; вибрация — не обязательна для MVP |
 | Android: MTU 23 по умолчанию | Обрезанные репорты | `requestMtu(517)` до подписки |
@@ -309,8 +356,8 @@ Docs/Joycon2/      этот план + PROTOCOL.md + заметки по рез�
 
 ## 7. Чем НЕ занимаемся (пока)
 
-- Гироскоп/акселерометр, оптическая «мышь» Joy-Con 2, магнитометр — данные парсим, но в игру не
-  выводим (кроме дебаг-оверлея).
+- Оптическая «мышь» Joy-Con 2, магнитометр — не парсим. (Гироскоп/акселерометр теперь выведены в
+  Input System — см. Фазу A+.)
 - HD-вибрация (сложный формат пакетов) — максимум простой пресет после MVP.
 - NFC, ИК-камера, аудио, GameCube/Pro Controller 2 (хотя протокол общий — бонусом может заработать).
 - Нативный iOS.

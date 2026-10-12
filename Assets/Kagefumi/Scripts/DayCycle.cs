@@ -32,6 +32,8 @@ namespace Kagefumi
         public float duskDuration = 3f;
         public float nightDuration = 18f;
         public bool paused;
+        [Tooltip("Multiplies the clock while not paused. 0 freezes the sun's own travel (e.g. while a player holds it).")]
+        public float clockScale = 1f;
 
         [Header("Sun path")]
         public float minElevation = 15f;
@@ -41,6 +43,12 @@ namespace Kagefumi
         public float lowSunBoost = 1.9f;
         public Color sunLow = new Color(1f, 0.74f, 0.52f);
         public Color sunHigh = new Color(1f, 0.96f, 0.88f);
+
+        [Header("Sun tilt (SUN GRAB)")]
+        [Tooltip("World-space rotation applied to the sun's position on its path (identity = untouched).")]
+        public Quaternion sunTilt = Quaternion.identity;
+        [Tooltip("A tilted sun never sinks below this many degrees above the horizon.")]
+        public float tiltedMinElevation = 5f;
 
         [Header("Lamps")]
         public float lampIntensity = 60f;
@@ -99,7 +107,7 @@ namespace Kagefumi
 
         void Update()
         {
-            if (!paused) CycleTime = Mathf.Repeat(CycleTime + Time.deltaTime, CycleLength);
+            if (!paused) CycleTime = Mathf.Repeat(CycleTime + Time.deltaTime * clockScale, CycleLength);
             UpdateFlicker();
             Apply();
         }
@@ -108,6 +116,8 @@ namespace Kagefumi
         public void ResetToMorning()
         {
             CycleTime = dawnDuration;
+            clockScale = 1f;
+            sunTilt = Quaternion.identity;
             flickerLamp = -1;
             for (int i = 0; i < flicker.Length; i++) flicker[i] = 1f;
             Apply();
@@ -184,9 +194,25 @@ namespace Kagefumi
             float height = Mathf.Sin(Mathf.PI * DayProgress);
             float elevation = Mathf.Lerp(minElevation, maxElevation, height);
             float azimuth = 270f + 180f * DayProgress;
+            var sunRotation = Quaternion.Euler(elevation, azimuth, 0f);
+            if (Quaternion.Angle(sunTilt, Quaternion.identity) > 0.01f)
+            {
+                // A player holds the sun: rotate the direction towards it, keep it above the horizon.
+                var toSun = sunTilt * (sunRotation * Vector3.back);
+                float minY = Mathf.Sin(tiltedMinElevation * Mathf.Deg2Rad);
+                if (toSun.y < minY)
+                {
+                    var flat = new Vector3(toSun.x, 0f, toSun.z);
+                    flat = flat.sqrMagnitude > 1e-6f ? flat.normalized : Vector3.forward;
+                    toSun = flat * Mathf.Cos(tiltedMinElevation * Mathf.Deg2Rad) + Vector3.up * minY;
+                }
+                sunRotation = Quaternion.LookRotation(-toSun, Mathf.Abs(toSun.y) > 0.999f ? Vector3.forward : Vector3.up);
+                float tiltedElevation = Mathf.Asin(Mathf.Clamp(toSun.y, -1f, 1f)) * Mathf.Rad2Deg;
+                height = Mathf.InverseLerp(minElevation, maxElevation, tiltedElevation);
+            }
+            sun.transform.rotation = sunRotation;
             float sunK = Smooth(sunFactor);
 
-            sun.transform.rotation = Quaternion.Euler(elevation, azimuth, 0f);
             sun.color = Color.Lerp(sunLow, sunHigh, height);
             sun.intensity = sunIntensity * sunK * Mathf.Lerp(lowSunBoost, 1f, height);
             sun.enabled = sunK > 0.001f;

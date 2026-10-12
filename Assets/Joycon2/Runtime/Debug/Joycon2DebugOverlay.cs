@@ -1,0 +1,142 @@
+using System;
+using System.IO;
+using System.Text;
+using UnityEngine;
+using UnityEngine.InputSystem;
+
+namespace Joycon2
+{
+    /// <summary>
+    /// F9 — toggle the overlay (visible by default in the Editor and development builds).
+    /// F10 — start/stop recording raw input reports to persistentDataPath/Joycon2Dumps (fixtures for tests).
+    /// </summary>
+    public sealed class Joycon2DebugOverlay : MonoBehaviour
+    {
+        bool visible;
+        StreamWriter recording;
+        string recordingPath;
+        double recordingStart;
+        GUIStyle style;
+        readonly StringBuilder text = new StringBuilder(1024);
+
+        void Awake() => visible = Application.isEditor || Debug.isDebugBuild;
+
+        void OnEnable() => Joycon2Manager.RawReport += OnRawReport;
+
+        void OnDisable()
+        {
+            Joycon2Manager.RawReport -= OnRawReport;
+            StopRecording();
+        }
+
+        void Update()
+        {
+            var keyboard = Keyboard.current;
+            if (keyboard == null) return;
+            if (keyboard.f9Key.wasPressedThisFrame) visible = !visible;
+            if (keyboard.f10Key.wasPressedThisFrame)
+            {
+                if (recording == null) StartRecording();
+                else StopRecording();
+            }
+        }
+
+        void OnGUI()
+        {
+            if (!visible) return;
+            style ??= new GUIStyle(GUI.skin.box)
+            {
+                alignment = TextAnchor.UpperLeft,
+                fontSize = 13,
+                richText = false,
+                wordWrap = false,
+                font = Font.CreateDynamicFontFromOSFont(new[] { "Consolas", "Menlo", "Courier New" }, 13),
+            };
+
+            text.Clear();
+            text.Append("Joy-Con 2  [F9 hide, F10 ").Append(recording == null ? "record" : "stop recording").Append("]\n");
+            text.Append("transport: ").Append(Joycon2Manager.Transport?.Name ?? "-")
+                .Append("   ").Append(Joycon2Manager.Status).Append('\n');
+            if (recording != null) text.Append("recording → ").Append(recordingPath).Append('\n');
+            if (Joycon2Manager.Controllers.Count == 0)
+                text.Append("no controllers — hold SYNC on a Joy-Con 2 until its LEDs run\n");
+
+            foreach (var c in Joycon2Manager.Controllers)
+            {
+                var s = c.Session;
+                text.Append('\n').Append(c.Name).Append("  ").Append(c.AddressText)
+                    .Append("  ").Append(s.State).Append(s.State == Joycon2Session.SessionState.Ready ? "" : $" ({s.Status})");
+                if (c.Device != null) text.Append("  device #").Append(c.Device.deviceId).Append("  P").Append(c.PlayerIndex + 1);
+                text.Append('\n');
+                text.Append($"  MTU {c.Mtu}  {c.ReportRate,5:0.0} Hz  reports {s.ReportCount}  calib {s.CalibratedFrom}");
+                if (c.WriteFailures > 0) text.Append("  write failures ").Append(c.WriteFailures);
+                text.Append('\n');
+                if (!s.HasReport) continue;
+
+                var r = s.LastReport;
+                ushort rawX = c.Side == Joycon2Side.Left ? r.Stick1X : r.Stick2X;
+                ushort rawY = c.Side == Joycon2Side.Left ? r.Stick1Y : r.Stick2Y;
+                var pad = Joycon2Mapping.Sideways(c.Side, r, s.Calibration);
+                text.Append($"  buttons 0x{(uint)r.Buttons:X8} {r.Buttons}\n");
+                text.Append($"  stick raw ({rawX,4}, {rawY,4})  pad ({pad.StickX,5:0.00}, {pad.StickY,5:0.00})  {pad.Buttons}\n");
+                text.Append($"  battery {r.BatteryMillivolts} mV\n");
+                if (r.HasMotion)
+                {
+                    var g = c.AngularVelocity;
+                    var a = c.Acceleration;
+                    text.Append($"  gyro °/s  pitch {g.X,7:0.0}  turn {g.Y,7:0.0}  roll {g.Z,7:0.0}" +
+                                $"   bias ({c.GyroBias.X:0.0}, {c.GyroBias.Y:0.0}, {c.GyroBias.Z:0.0}){(c.GyroBias.IsStill ? " still" : "")}\n");
+                    text.Append($"  accel g   right {a.X,5:0.00}  up {a.Y,5:0.00}  fwd {a.Z,5:0.00}" +
+                                $"   raw imu a({r.AccelX}, {r.AccelY}, {r.AccelZ}) g({r.GyroX}, {r.GyroY}, {r.GyroZ})\n");
+                    var rel = c.Orientation.Relative;
+                    var e = rel.EulerDegrees;
+                    var face = rel.Rotate(new Joycon2Vector3(0f, 1f, 0f));
+                    text.Append($"  attitude  pitch {e.X,6:0}°  turn {e.Y,6:0}°  roll {e.Z,6:0}°" +
+                                $"   face → right {face.X,5:0.00}  up {face.Y,5:0.00}  fwd {face.Z,5:0.00}   [Select = zero]\n");
+                }
+                else text.Append("  no motion data\n");
+            }
+
+            var content = new GUIContent(text.ToString());
+            var size = style.CalcSize(content);
+            GUI.Box(new Rect(10, 10, size.x + 10, size.y + 6), content, style);
+        }
+
+        void OnRawReport(Joycon2Controller c, byte[] data, int length)
+        {
+            if (recording == null) return;
+            var line = new StringBuilder(16 + length * 2);
+            line.Append((Time.realtimeSinceStartupAsDouble - recordingStart).ToString("0.0000")).Append('\t')
+                .Append(c.Side == Joycon2Side.Left ? 'L' : 'R').Append('\t');
+            for (int i = 0; i < length; i++) line.Append(data[i].ToString("x2"));
+            recording.WriteLine(line.ToString());
+        }
+
+        void StartRecording()
+        {
+            try
+            {
+                string dir = Path.Combine(Application.persistentDataPath, "Joycon2Dumps");
+                Directory.CreateDirectory(dir);
+                recordingPath = Path.Combine(dir, $"joycon2-{DateTime.Now:yyyyMMdd-HHmmss}.tsv");
+                recording = new StreamWriter(recordingPath);
+                recording.WriteLine("# time\tside\treport-hex");
+                recordingStart = Time.realtimeSinceStartupAsDouble;
+                Debug.Log($"[Joycon2] recording raw reports to {recordingPath}");
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[Joycon2] cannot record: {e.Message}");
+                recording = null;
+            }
+        }
+
+        void StopRecording()
+        {
+            if (recording == null) return;
+            recording.Dispose();
+            recording = null;
+            Debug.Log($"[Joycon2] recording saved: {recordingPath}");
+        }
+    }
+}

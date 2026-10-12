@@ -44,6 +44,12 @@ namespace Kagefumi
         public State CurrentState { get; private set; } = State.Lobby;
         public KagefumiSfx Sfx { get; private set; }
         public KagefumiFx Fx { get; private set; }
+        public SunGrab SunGrab { get; private set; }
+
+        /// <summary>Device driving player <paramref name="i"/>, or null.</summary>
+        public InputDevice DeviceOf(int i) => slots[i].device;
+        /// <summary>The player with fewer points, or -1 while tied.</summary>
+        public int Outsider => scores[0] == scores[1] ? -1 : scores[0] < scores[1] ? 0 : 1;
 
         static readonly string[] StompLines = { "STOMP!", "GOTCHA!", "SHADOW PINNED!", "KAGEFUMI!", "STEPPED ON!" };
         static readonly Color Gold = new Color(1f, 0.84f, 0.4f);
@@ -88,6 +94,8 @@ namespace Kagefumi
             Fx.Init(fxMaterial);
             hud = gameObject.AddComponent<KagefumiHud>();
             hud.Build(new[] { players[0].color, players[1].color }, winScore);
+            SunGrab = gameObject.AddComponent<SunGrab>();
+            SunGrab.Init(this, dayCycle, hud);
 
             for (int i = 0; i < players.Length; i++)
             {
@@ -214,6 +222,7 @@ namespace Kagefumi
 
             hud.SetPlayer(i, true, DeviceLabel(device, scheme));
             hud.Toast($"P{i + 1} READY", p.color, 1.2f);
+            Joycon2.Joycon2Manager.SetPlayerIndex(device, i); // player LEDs on a Joy-Con 2; no-op for other devices
             Sfx.Join();
 
             bool both = slots[0].Joined && slots[1].Joined;
@@ -250,7 +259,8 @@ namespace Kagefumi
             CurrentState = State.Lobby;
             SetControllable(true);
             hud.ShowBig("KAGEFUMI", Color.white,
-                "the shadow-stepping duel\n\nPress A on two gamepads to join\n(keyboard: SPACE for P1, ENTER for P2)");
+                "the shadow-stepping duel\n\nPress A on two gamepads to join\n(keyboard: SPACE for P1, ENTER for P2)\n\n" +
+                "Behind on a Joy-Con 2? Every 15 s you GRAB THE SUN: tilt it to move the shadows");
         }
 
         void StartMatch()
@@ -303,6 +313,7 @@ namespace Kagefumi
                     players[i].ResetTo(spawnPoints[i], SpawnFacing(i));
                 }
                 dayCycle.ResetToMorning();
+                SunGrab.ResetForMatch();
                 lastPhase = dayCycle.CurrentPhase;
                 noonAnnounced = false;
             }

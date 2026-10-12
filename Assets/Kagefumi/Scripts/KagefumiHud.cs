@@ -20,7 +20,7 @@ namespace Kagefumi
 
         Font font;
         Sprite circle;
-        Text bigText, subText, toastText, phaseText;
+        Text bigText, subText, toastText, phaseText, sunHolderText;
         Image backdrop;
         RectTransform bigRect, toastRect, dialIcon;
         Image dialIconImage;
@@ -54,6 +54,8 @@ namespace Kagefumi
             dialIconImage = dialIcon.gameObject.AddComponent<Image>();
             dialIconImage.sprite = circle;
             phaseText = Label("Phase", dial, new Vector2(0.5f, 0f), new Vector2(0.5f, 1f), new Vector2(0f, 26f), 24, TextAnchor.UpperCenter);
+            sunHolderText = Label("Sun Holder", dial, new Vector2(0.5f, 0f), new Vector2(0.5f, 1f), new Vector2(0f, -4f), 28, TextAnchor.UpperCenter);
+            sunHolderText.enabled = false;
 
             backdrop = Rect("Backdrop", root, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 20f), new Vector2(4000f, 400f))
                 .gameObject.AddComponent<Image>();
@@ -140,6 +142,16 @@ namespace Kagefumi
             toastColor = color;
             toastDuration = duration;
             toastTime = 0f;
+        }
+
+        /// <summary>Line under the sun dial saying who steers the sun; null hides it.</summary>
+        public void SetSunHolder(string text, Color color)
+        {
+            sunHolderText.enabled = text != null;
+            if (text == null) return;
+            sunHolderText.text = text;
+            sunHolderText.color = color;
+            dialIconImage.color = Color.Lerp(dialIconImage.color, color, 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 10f));
         }
 
         public void SetPhase(string label, float cycle01, DayCycle.Phase phase)
