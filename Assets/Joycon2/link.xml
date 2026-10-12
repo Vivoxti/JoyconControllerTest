@@ -1,0 +1,5 @@
+<linker>
+  <!-- Joycon2Gamepad and its state struct are found by the Input System through reflection (layouts, Activator):
+       keep the whole runtime assembly under IL2CPP stripping (WebGL strips harder than Standalone). -->
+  <assembly fullname="Joycon2.Runtime" preserve="all" />
+</linker>

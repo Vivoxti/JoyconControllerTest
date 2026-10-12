@@ -65,7 +65,7 @@ namespace Kagefumi
         State stateBeforePause;
         float baseTimeScale = 1f, shake;
         Vector3 cameraHome;
-        bool rematchReady, noonAnnounced;
+        bool rematchReady, noonAnnounced, joyconPickRequested;
         DayCycle.Phase lastPhase;
 
         void OnEnable()
@@ -109,6 +109,7 @@ namespace Kagefumi
 
         void Update()
         {
+            UpdateJoyconPicking();
             ProcessDeviceQueues();
             Physics.SyncTransforms();
             UpdateLocks();
@@ -134,6 +135,8 @@ namespace Kagefumi
         {
             // Called from inside the input update: only record the request, act on it in Update.
             var device = control.device;
+            // Event-based, so a click or tap shorter than a frame still counts (wasPressedThisFrame misses those).
+            if (control == (device as Mouse)?.leftButton || control == (device as Keyboard)?.jKey) joyconPickRequested = true;
             string scheme = null;
             if (device is Gamepad) scheme = "Gamepad";
             else if (device is Joystick) scheme = "Joystick";
@@ -186,6 +189,23 @@ namespace Kagefumi
             }
             pendingJoins.Clear();
         }
+
+        /// <summary>
+        /// WebGL: Joy-Con 2 are not found by scanning — the browser lists them in its Bluetooth chooser, which opens
+        /// only right after a click or key press (gamepad buttons don't count). The picked one joins like any gamepad.
+        /// </summary>
+        void UpdateJoyconPicking()
+        {
+            bool requested = joyconPickRequested;
+            joyconPickRequested = false;
+            if (!requested || !Joycon2.Joycon2Manager.CanRequestController ||
+                CurrentState == State.Playing || CurrentState == State.Countdown) return;
+            if (Joycon2.Joycon2Manager.RequestController()) hud.Toast("PICK YOUR JOY-CON 2", Gold, 1.5f);
+        }
+
+        static string JoyconConnectHint => Joycon2.Joycon2Manager.ConnectsOnRequest
+            ? "\nJoy-Con 2: hold SYNC, then click (or press J) and pick it in the browser list"
+            : "";
 
         bool IsAssigned(InputDevice device, string scheme)
         {
@@ -259,7 +279,7 @@ namespace Kagefumi
             CurrentState = State.Lobby;
             SetControllable(true);
             hud.ShowBig("KAGEFUMI", Color.white,
-                "the shadow-stepping duel\n\nPress A on two gamepads to join\n(keyboard: SPACE for P1, ENTER for P2)\n\n" +
+                "the shadow-stepping duel\n\nPress A on two gamepads to join\n(keyboard: SPACE for P1, ENTER for P2)" + JoyconConnectHint + "\n\n" +
                 "Behind on a Joy-Con 2? Every 15 s you GRAB THE SUN: tilt it to move the shadows");
         }
 
@@ -278,7 +298,7 @@ namespace Kagefumi
             CurrentState = State.Paused;
             Time.timeScale = 0f;
             SetControllable(false);
-            hud.ShowBig("PAUSED", Color.white, "A controller was disconnected.\nPress any button on a controller to take its place.");
+            hud.ShowBig("PAUSED", Color.white, "A controller was disconnected.\nPress any button on a controller to take its place." + JoyconConnectHint);
         }
 
         void Resume()

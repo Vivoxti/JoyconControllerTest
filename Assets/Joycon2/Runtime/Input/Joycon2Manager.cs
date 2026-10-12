@@ -64,6 +64,13 @@ namespace Joycon2
 
         public static IJoycon2Transport Transport { get; private set; }
         public static bool IsRunning { get; private set; }
+        /// <summary>
+        /// The transport cannot scan in the background (WebGL): each controller is added by
+        /// <see cref="RequestController"/>, which has to be called right after a click or key press.
+        /// </summary>
+        public static bool ConnectsOnRequest => Transport != null && Transport.RequiresUserGesture;
+        /// <summary>A <see cref="RequestController"/> call would open the chooser now.</summary>
+        public static bool CanRequestController => IsRunning && ConnectsOnRequest && !pickPending && controllers.Count < MaxControllers;
         public static bool IsScanning { get; private set; }
         public static string Status { get; private set; } = "stopped";
         public static IReadOnlyList<Joycon2Controller> Controllers => controllers;
@@ -76,7 +83,10 @@ namespace Joycon2
         static readonly HashSet<ulong> ignoredNotPairing = new HashSet<ulong>();
         static readonly byte[] payload = new byte[512];
         static double scanRetryAt;
+        static bool pickPending;
         static GameObject host;
+
+        const int PickAny = 0, PickLeft = 1, PickRight = 2;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         static void ResetStatics()
@@ -121,13 +131,16 @@ namespace Joycon2
             IsRunning = true;
             Status = "running";
             scanRetryAt = 0;
+            pickPending = false;
             InputSystem.onBeforeUpdate += Pump;
 
             host = new GameObject("Joycon2 Manager");
             UnityEngine.Object.DontDestroyOnLoad(host);
             host.AddComponent<Joycon2Host>();
             host.AddComponent<Joycon2DebugOverlay>();
-            Debug.Log($"[Joycon2] started ({Transport.Name}). Hold SYNC on a Joy-Con 2 to connect it.");
+            Debug.Log(ConnectsOnRequest
+                ? $"[Joycon2] started ({Transport.Name}). Hold SYNC on a Joy-Con 2, then pick it in the browser chooser (RequestController)."
+                : $"[Joycon2] started ({Transport.Name}). Hold SYNC on a Joy-Con 2 to connect it.");
         }
 
         public static void Stop()
@@ -169,10 +182,44 @@ namespace Joycon2
 
         public static void Disconnect(Joycon2Controller controller) => Drop(controller, "disconnected by request", 0);
 
+        /// <summary>
+        /// Opens the browser's Bluetooth chooser listing Joy-Con 2 (only <paramref name="side"/>, if given). Only when
+        /// <see cref="ConnectsOnRequest"/>; call it from the frame that saw a click or key press (gamepad buttons
+        /// do not count as a user gesture in browsers). The picked controller then connects as usual.
+        /// </summary>
+        public static bool RequestController(Joycon2Side? side = null)
+        {
+            if (!CanRequestController) return false;
+            pickPending = true;
+            Status = "Bluetooth chooser open";
+            int tag = side == null ? PickAny : side == Joycon2Side.Left ? PickLeft : PickRight;
+            Transport.RequestDevice(BuildDeviceRequest(side), tag);
+            return true;
+        }
+
+        /// <summary>Web Bluetooth requestDevice options: manufacturer data with the PID (as the reference web demo).</summary>
+        static string BuildDeviceRequest(Joycon2Side? side)
+        {
+            var filters = new StringBuilder();
+            void Filter(ushort pid)
+            {
+                if (filters.Length > 0) filters.Append(',');
+                // Manufacturer data after the company id: [3..4] VID, [5..6] PID — match the PID only.
+                filters.Append("{\"manufacturerData\":[{\"companyIdentifier\":").Append(Joycon2Protocol.CompanyId)
+                       .Append(",\"dataPrefix\":[0,0,0,0,0,").Append(pid & 0xFF).Append(',').Append(pid >> 8)
+                       .Append("],\"mask\":[0,0,0,0,0,255,255]}]}");
+            }
+            if (side != Joycon2Side.Right) Filter(Joycon2Protocol.ProductIdLeft);
+            if (side != Joycon2Side.Left) Filter(Joycon2Protocol.ProductIdRight);
+            return $"{{\"filters\":[{filters}],\"optionalServices\":[\"{Joycon2Protocol.ServiceUuid}\"]}}";
+        }
+
         static IJoycon2Transport CreateTransport()
         {
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
             return new Joycon2WindowsTransport();
+#elif UNITY_WEBGL
+            return new Joycon2WebBluetoothTransport();
 #else
             return new Joycon2NullTransport();
 #endif
@@ -210,10 +257,14 @@ namespace Joycon2
                     OnDeviceFound(e, length, now);
                     break;
 
+                case Joycon2TransportEventType.DevicePicked:
+                    OnDevicePicked(e, length, now);
+                    break;
+
                 case Joycon2TransportEventType.Connected:
                     if (c == null) break;
                     c.Mtu = e.Status;
-                    Debug.Log($"[Joycon2] {c.Name} {c.AddressText} connected (MTU {c.Mtu}), handshake…");
+                    Debug.Log($"[Joycon2] {c.Name} {c.AddressText} connected (MTU {(c.Mtu > 0 ? c.Mtu.ToString() : "n/a")}), handshake…");
                     c.Session.OnConnected(now);
                     break;
 
@@ -266,23 +317,64 @@ namespace Joycon2
                 if (existing.Address == e.Address) return;
             if (cooldownUntil.TryGetValue(e.Address, out double until) && now < until) return;
 
-            int handle = Transport.Connect(e.Address);
-            if (handle <= 0) return;
+            var c = BeginConnect(e.Address, adv.Side, now);
+            if (c != null) Debug.Log($"[Joycon2] found {c.Name} {c.AddressText} (RSSI {e.Rssi} dBm), connecting…");
+        }
+
+        static void OnDevicePicked(in Joycon2TransportEvent e, int length, double now)
+        {
+            pickPending = false;
+            string text = Encoding.UTF8.GetString(payload, 0, length);
+            if (e.Status != 0)
+            {
+                if (e.Status == 1) Debug.Log($"[Joycon2] no Joy-Con picked ({text})");
+                else Debug.LogWarning($"[Joycon2] Bluetooth chooser failed: {text}");
+                return;
+            }
+
+            Joycon2Side side;
+            if (e.Tag == PickLeft) side = Joycon2Side.Left;
+            else if (e.Tag == PickRight) side = Joycon2Side.Right;
+            else if (text.EndsWith("(L)")) side = Joycon2Side.Left;
+            else if (text.EndsWith("(R)")) side = Joycon2Side.Right;
+            else
+            {
+                // The chooser lists L and R together; without the usual name ask for one side instead.
+                Debug.LogWarning($"[Joycon2] picked \"{text}\": cannot tell L from R by name — use RequestController(Joycon2Side.Left/Right).");
+                return;
+            }
+
+            foreach (var existing in controllers)
+                if (existing.Address == e.Address)
+                {
+                    Debug.Log($"[Joycon2] {existing.Name} {existing.AddressText} is already connected");
+                    return;
+                }
+            if (controllers.Count >= MaxControllers) return;
+
+            var c = BeginConnect(e.Address, side, now);
+            if (c != null) Debug.Log($"[Joycon2] picked {c.Name} {c.AddressText} (\"{text}\"), connecting…");
+        }
+
+        static Joycon2Controller BeginConnect(ulong address, Joycon2Side side, double now)
+        {
+            int handle = Transport.Connect(address);
+            if (handle <= 0) return null;
 
             var c = new Joycon2Controller
             {
                 Handle = handle,
-                Address = e.Address,
-                Side = adv.Side,
+                Address = address,
+                Side = side,
                 ConnectStartTime = now,
                 rateWindowStart = now,
             };
-            c.Session = new Joycon2Session(new TransportLink(handle), adv.Side, SessionOptions)
+            c.Session = new Joycon2Session(new TransportLink(handle), side, SessionOptions)
             {
                 Log = message => Debug.Log($"[Joycon2] {c.AddressText} {message}"),
             };
             controllers.Add(c);
-            Debug.Log($"[Joycon2] found {c.Name} {c.AddressText} (RSSI {e.Rssi} dBm), connecting…");
+            return c;
         }
 
         static void UpdateController(Joycon2Controller c, double now)
@@ -387,6 +479,11 @@ namespace Joycon2
         static void UpdateScanning(double now)
         {
             bool want = controllers.Count < MaxControllers;
+            if (ConnectsOnRequest)
+            {
+                if (!pickPending) Status = want ? "click / press a key to pick a Joy-Con 2" : "all controllers connected";
+                return;
+            }
             if (want && !IsScanning && now >= scanRetryAt)
             {
                 Transport.StartScan(Joycon2Protocol.CompanyId);
@@ -419,7 +516,7 @@ namespace Joycon2
             return null;
         }
 
-        internal static string FormatAddress(ulong a) =>
+        internal static string FormatAddress(ulong a) => Transport != null && Transport.RequiresUserGesture ? $"web#{a}" :
             $"{(a >> 40) & 0xFF:X2}:{(a >> 32) & 0xFF:X2}:{(a >> 24) & 0xFF:X2}:{(a >> 16) & 0xFF:X2}:{(a >> 8) & 0xFF:X2}:{a & 0xFF:X2}";
 
         sealed class TransportLink : IJoycon2Link

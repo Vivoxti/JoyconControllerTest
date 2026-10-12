@@ -12,6 +12,8 @@ namespace Joycon2
         Notification = 7,  // Handle, Tag; payload = value
         WriteFailed = 8,   // Handle, Status
         ScanStopped = 9,   // Status = error (0 = on request)
+        DevicePicked = 10, // RequestDevice result. Status 0: Address, Tag = request tag, payload = device name (UTF-8);
+                           // otherwise Status 1 = cancelled, 2 = error, payload = message
     }
 
     public struct Joycon2TransportEvent
@@ -33,12 +35,21 @@ namespace Joycon2
     public interface IJoycon2Transport
     {
         string Name { get; }
+        /// <summary>No background scanning: devices are picked by the user (browser chooser) via
+        /// <see cref="RequestDevice"/>, which must follow a click or key press.</summary>
+        bool RequiresUserGesture { get; }
         /// <summary>False if the platform/plugin is unavailable.</summary>
         bool Initialize();
         void Shutdown();
 
         void StartScan(ushort companyId);
         void StopScan();
+        /// <summary>
+        /// Opens the device chooser (only when <see cref="RequiresUserGesture"/>). <paramref name="requestJson"/> is a
+        /// Web Bluetooth <c>requestDevice</c> options object; byte arrays are plain JSON arrays. Answers with
+        /// <see cref="Joycon2TransportEventType.DevicePicked"/> carrying <paramref name="tag"/>.
+        /// </summary>
+        void RequestDevice(string requestJson, int tag);
 
         bool TryDequeueEvent(out Joycon2TransportEvent e, byte[] payload);
 
@@ -53,10 +64,12 @@ namespace Joycon2
     public sealed class Joycon2NullTransport : IJoycon2Transport
     {
         public string Name => "none";
+        public bool RequiresUserGesture => false;
         public bool Initialize() => false;
         public void Shutdown() { }
         public void StartScan(ushort companyId) { }
         public void StopScan() { }
+        public void RequestDevice(string requestJson, int tag) { }
         public bool TryDequeueEvent(out Joycon2TransportEvent e, byte[] payload) { e = default; return false; }
         public int Connect(ulong address) => -1;
         public void Disconnect(int handle) { }

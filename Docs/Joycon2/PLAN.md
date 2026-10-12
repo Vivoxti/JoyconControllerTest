@@ -10,7 +10,7 @@
 >
 > Протокол (UUID, команды, разметка репорта): [PROTOCOL.md](PROTOCOL.md).
 
-Последнее обновление: 2026-10-12 (Фазы 1 и A: код готов). Unity 6000.3.18f1, Input System 1.19.0.
+Последнее обновление: 2026-10-13 (Фазы 1 и A: работают на железе; B/C: код готов). Unity 6000.3.18f1, Input System 1.19.0.
 
 ---
 
@@ -265,23 +265,44 @@ Docs/Joycon2/      этот план + PROTOCOL.md + заметки по рез�
   Тестовый режим «солнце из зенита» удалён.
 - ☐ Наиграть и подобрать коэффициенты (gain, длительность, интервал, автоцентр).
 
-### Фаза B/C — WebGL, Chrome/Edge на Windows и macOS ☐
+### Фаза B/C — WebGL, Chrome/Edge на Windows и macOS ◐ (билд работает, ждёт проверки с Joy-Con)
 
-- ☐ `Joycon2WebBluetooth.jslib`: `navigator.bluetooth.requestDevice({ filters: [{ manufacturerData:
-  [{ companyIdentifier: 0x0553, … }] }], optionalServices: [<service>] })` → `gatt.connect()` →
-  характеристики → `startNotifications()` → очередь в JS → C# забирает polling-ом.
-- ☐ **User gesture.** `requestDevice` разрешён только внутри пользовательского жеста. Вызов из C#
-  на следующем кадре после клика *обычно* укладывается в окно transient activation (~5 c в Chrome),
-  но надёжнее: `.jslib` вешает одноразовый `pointerup`-листенер на canvas/HTML-кнопку и вызывает
-  `requestDevice` прямо в DOM-обработчике. В лобби Kagefumi для WebGL — кнопка «Подключить Joy-Con».
-- ☐ Каждый Joy-Con — отдельный chooser (один `requestDevice` = одно устройство). UX: «Подключить
-  игрока 1» / «Подключить игрока 2».
+Всё «умное» (handshake, калибровка, маппинг «боком», IMU/поза, LED, keep-alive, SUN GRAB) — то же C#-ядро;
+в вебе новый только транспорт байтов. Kagefumi не меняется, кроме способа *подключить* Joy-Con.
+
+- ☑ `Assets/Joycon2/Plugins/WebGL/Joycon2WebBluetooth.jslib` + `Joycon2WebBluetoothTransport.cs`
+  (`UNITY_WEBGL && !UNITY_EDITOR`). Та же модель, что у Windows DLL: события в JS-очереди, C# забирает
+  `jc2web_poll_event` в `onBeforeUpdate`, колбэков в C# нет. GATT-операции строго по одной на устройство
+  (Chrome отвергает параллельные), ретраи `getPrimaryService` сразу после connect, байты записи копируются
+  в момент вызова, очередь нотификаций ограничена 2048 (скрытая вкладка не рендерит, но BLE идёт).
+- ☑ Интерфейс транспорта: `RequiresUserGesture` + `RequestDevice(json, tag)` → событие `DevicePicked`.
+  Нативные транспорты сканируют сами и эти члены игнорируют.
+- ☑ `Joycon2Manager.RequestController(side?)`: фильтр `manufacturerData` company `0x0553` + маска на PID
+  (`…67 20` L, `…66 20` R — как в рабочем веб-демо), `optionalServices` = сервис `…7fd0`. Сторона — по
+  запрошенному фильтру или по имени `Joy-Con 2 (L/R)`. `CanRequestController`, `ConnectsOnRequest`.
+  Адреса в вебе — локальные id страницы (`web#1`), в логах и оверлее.
+- ☑ **User gesture.** Kagefumi (лобби/пауза/конец матча): **клик мышью или J** → `RequestController()`
+  в том же кадре — это внутри окна transient activation Chrome. Если браузер всё же откажет (нет активации),
+  `.jslib` сам ждёт следующего `pointerup`/`keyup` и открывает chooser прямо из DOM-обработчика.
+  Кнопки геймпада жестом **не считаются** — подключать Joy-Con кнопкой Joy-Con нельзя.
+- ☑ Каждый Joy-Con — отдельный chooser (один `requestDevice` = одно устройство), лимит — `MaxControllers` (2).
+- ☑ Детект неподдерживаемого браузера / не-HTTPS: `jc2web_init` → `console.warn`, менеджер выключает Joy-Con.
+- ☑ `link.xml` для `Joycon2.Runtime` (layout Input System ищется рефлексией; WebGL стрипает сильнее).
+- ☑ Меню **Kagefumi → Build WebGL (dev, localhost)** → `Builds/WebGL` (development, оверлей F9, decompression
+  fallback → годится любой статический сервер). Отдать: `python -m http.server 8000 -d Builds/WebGL`,
+  открыть `http://localhost:8000` в Chrome/Edge.
+- ☑ Модуль Web Build Support установлен; билд собирается и запускается (лобби, оверлей, клик/J → `requestDevice` → ответ браузера обратно в C#) — см. TEST_LOG 2026-10-13. Запрос chooser'а ловится по событию (`onAnyButtonPress`), не `wasPressedThisFrame`: короткий тап иначе теряется.
+- ☐ Проверка на железе, Windows + Chrome и Edge: два Joy-Con, кнопки/стики/гироскоп/SUN GRAB, LED по слоту,
+  **Гц из оверлея** (см. риск ниже), переподключение после выключения Joy-Con.
+- ☐ То же на macOS + Chrome (Фаза C).
 - ☐ Перезагрузка страницы рвёт соединения; переподключение — снова SYNC + chooser
   (app-level bonding в вебе невозможен: нет адреса хоста).
-- ☐ Требования: HTTPS (или `localhost`). Для локальных тестов — Unity «Build And Run» отдаёт по
-  `localhost`, этого достаточно; для телефонов — любой HTTPS-хостинг/туннель.
-- ☐ Проверить, что Chrome сам договаривается о MTU, достаточном для 63-байтных нотификаций.
-- ☐ Детект неподдерживаемого браузера → понятное сообщение.
+- ☐ Chrome не сообщает MTU (в оверлее `MTU 0`) — проверить, что репорты приходят полные (63 байта).
+
+**Главный риск — частота репортов.** Chrome на Windows не просит у WinRT `ThroughputOptimized`, как наш
+DLL, — интервал соединения выберет Windows. Если выйдет ~16–30 Гц: стик и кнопки играбельны, поза не
+«плывёт» (dt берётся по IMU-таймстемпу, он валиден до 100 мс), но солнце в SUN GRAB будет дёргаться —
+тогда сглаживать в игре. Из веба повлиять на интервал нельзя.
 
 ### Фаза D — macOS (Standalone + Editor) ☐
 
@@ -342,7 +363,8 @@ Docs/Joycon2/      этот план + PROTOCOL.md + заметки по рез�
 | Протокол — результат реверса сообщества; обновление прошивки Joy-Con может что-то сломать | Перестанет подключаться | Фиксируем версию прошивки в TEST_LOG; парсер с проверками длины, логирование сырых байт |
 | Слабый встроенный BT-адаптер / Windows 10 | Обрывы, низкий Гц, не держит 2 устройства | Тестируем на Win 11; держим под рукой USB BT 5.x донгл |
 | Windows: контроллер не просит короткий connection interval | Win10 ≈ 16,7 Гц; на Win11 зависит от того, примет ли стек `ThroughputOptimized` | Просим `ThroughputOptimized`, логируем фактический интервал; если < 60 Гц — искать обход (повторный запрос после handshake, донгл) |
-| Web: `requestDevice` требует жеста пользователя | Chooser не открывается | Вызов из DOM-обработчика в `.jslib` |
+| Web: `requestDevice` требует жеста пользователя | Chooser не открывается | Вызов в кадре клика/клавиши; иначе `.jslib` ждёт следующий DOM-жест |
+| Web (Windows): Chrome не управляет connection interval | Низкий Гц → дёрганый SUN GRAB | Мерить (оверлей F9); при необходимости сглаживание в игре |
 | Web: в каком сервисе vibration-характеристики | Нет доступа к вибрации без `optionalServices` | Выясняем в Фазе 0; вибрация — не обязательна для MVP |
 | Android: MTU 23 по умолчанию | Обрезанные репорты | `requestMtu(517)` до подписки |
 | macOS: тихий обрыв ~15 c | Отваливается контроллер | Keep-alive 1 Гц в общем ядре |

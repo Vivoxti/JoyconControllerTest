@@ -37,6 +37,7 @@ namespace Joycon2
         bool initialized;
 
         public string Name => "WinRT";
+        public bool RequiresUserGesture => false;
 
         public bool Initialize()
         {
@@ -74,6 +75,8 @@ namespace Joycon2
         {
             if (initialized) jc2_stop_scan();
         }
+
+        public void RequestDevice(string requestJson, int tag) { }
 
         public bool TryDequeueEvent(out Joycon2TransportEvent e, byte[] payload)
         {

@@ -50,8 +50,10 @@ namespace Joycon2
                 fontSize = 13,
                 richText = false,
                 wordWrap = false,
-                font = Font.CreateDynamicFontFromOSFont(new[] { "Consolas", "Menlo", "Courier New" }, 13),
             };
+#if !UNITY_WEBGL || UNITY_EDITOR
+            style.font = Font.CreateDynamicFontFromOSFont(new[] { "Consolas", "Menlo", "Courier New" }, 13); // no OS fonts on the web
+#endif
 
             text.Clear();
             text.Append("Joy-Con 2  [F9 hide, F10 ").Append(recording == null ? "record" : "stop recording").Append("]\n");
@@ -59,7 +61,9 @@ namespace Joycon2
                 .Append("   ").Append(Joycon2Manager.Status).Append('\n');
             if (recording != null) text.Append("recording → ").Append(recordingPath).Append('\n');
             if (Joycon2Manager.Controllers.Count == 0)
-                text.Append("no controllers — hold SYNC on a Joy-Con 2 until its LEDs run\n");
+                text.Append(Joycon2Manager.ConnectsOnRequest
+                    ? "no controllers — hold SYNC on a Joy-Con 2, then click / press a key and pick it in the browser list\n"
+                    : "no controllers — hold SYNC on a Joy-Con 2 until its LEDs run\n");
 
             foreach (var c in Joycon2Manager.Controllers)
             {

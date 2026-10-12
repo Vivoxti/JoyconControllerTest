@@ -39,3 +39,33 @@
 
 Пользователь: в тестовом режиме солнца «всё гуд работает» — наклоны совпали с ожидаемыми.
 Тестовый режим после этого удалён, гироскоп снова управляет солнцем только в SUN GRAB.
+
+## 2026-10-13 · Windows 11 · WebGL / Web Bluetooth — без железа и без браузера
+
+Модуля Web Build Support для 6000.3.18f1 нет → WebGL-билд пока не собирался.
+
+| Что | Результат |
+|---|---|
+| `Joycon2.Runtime` + `Assembly-CSharp` компилируются Roslyn из Unity с дефайнами WebGL-плеера, Windows-плеера и Editor | ☑ без ошибок; в WebGL-сборку попадает только `jc2web_*`, в Windows — только `jc2_*` |
+| `Joycon2WebBluetooth.jslib` в node против фейкового `navigator.bluetooth` | ☑ chooser (и без активации → ждёт клик), id устройства стабилен при повторном выборе, connect → subscribe → write строго по одной операции, копия буфера записи, нотификации с тегом, лимит очереди 2048, обрыв → `Disconnected`, свой disconnect — без события, отмена chooser → статус 1 |
+
+**Дальше:** поставить модуль, `Kagefumi → Build WebGL`, `python -m http.server 8000 -d Builds/WebGL`,
+Chrome → `http://localhost:8000`, SYNC → клик → выбрать Joy-Con; записать Гц, MTU-проблемы, Chrome vs Edge.
+
+## 2026-10-13 · Windows 11 · первый WebGL-билд, без Joy-Con
+
+Модуль Web Build Support установлен. `Kagefumi → Build WebGL (dev, localhost)` из Editor: ☑ успешно,
+112 МБ (development, без сжатия), ~6 мин первая сборка, ~1 мин повторная. Отдаётся `python -m http.server`
+с `localhost:8000`. Проверял во встроенном браузере Claude (Chromium 152) — **не Chrome, без Joy-Con**.
+
+| Что | Результат |
+|---|---|
+| Загрузка, URP/WebGL 2, лобби, HUD, оверлей F9 | ☑ всё рисуется; в консоли только стандартные «shader not supported» для отладочных URP-шейдеров |
+| `[Joycon2] started (Web Bluetooth)` | ☑ транспорт поднялся (`navigator.bluetooth` есть, secure context) |
+| Клавиатурный игрок (SPACE → P1 READY) | ☑ |
+| Клик по игре → `RequestController` → `requestDevice` | ☑ тост «PICK YOUR JOY-CON 2», статус «Bluetooth chooser open»; браузер принял фильтры (нет TypeError) и вернул `NotFoundError: User cancelled` → C# пишет «no Joy-Con picked», статус сбрасывается, можно снова |
+| J → то же | ☑ (после исправления ниже) |
+| **Баг, исправлен:** короткий клик/тап (down+up в одном кадре) не открывал chooser — `wasPressedThisFrame` его не видит | Теперь запрос ловится по событию в `onAnyButtonPress` (как вход по SPACE) |
+
+Окна выбора устройства встроенный браузер не показывает, поэтому подключение Joy-Con, Гц, MTU, гироскоп
+и SUN GRAB в вебе ещё **не проверены** — нужен обычный Chrome/Edge и железо.
