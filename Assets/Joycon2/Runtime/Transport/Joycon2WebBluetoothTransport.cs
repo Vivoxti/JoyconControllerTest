@@ -35,6 +35,7 @@ namespace Joycon2
 
         public string Name => "Web Bluetooth";
         public bool RequiresUserGesture => true;
+        public string LocalAddressPrefix => "web";
 
         public bool Initialize()
         {

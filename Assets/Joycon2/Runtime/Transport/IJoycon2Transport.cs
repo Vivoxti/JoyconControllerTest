@@ -38,6 +38,9 @@ namespace Joycon2
         /// <summary>No background scanning: devices are picked by the user (browser chooser) via
         /// <see cref="RequestDevice"/>, which must follow a click or key press.</summary>
         bool RequiresUserGesture { get; }
+        /// <summary>Null if addresses are Bluetooth MACs. Otherwise they are local ids (the browser and CoreBluetooth
+        /// hide MACs), printed as "prefix#id".</summary>
+        string LocalAddressPrefix { get; }
         /// <summary>False if the platform/plugin is unavailable.</summary>
         bool Initialize();
         void Shutdown();
@@ -65,6 +68,7 @@ namespace Joycon2
     {
         public string Name => "none";
         public bool RequiresUserGesture => false;
+        public string LocalAddressPrefix => null;
         public bool Initialize() => false;
         public void Shutdown() { }
         public void StartScan(ushort companyId) { }

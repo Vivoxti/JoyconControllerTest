@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key><string>joycon2boost</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleIdentifier</key><string>com.joycontest.joycon2boost</string>
+    <key>CFBundleName</key><string>joycon2boost</string>
+    <key>CFBundleShortVersionString</key><string>1.0</string>
+    <key>CFBundleVersion</key><string>1</string>
+    <key>LSMinimumSystemVersion</key><string>11.0</string>
+    <key>LSUIElement</key><true/>
+    <key>NSBluetoothAlwaysUsageDescription</key><string>Raises the report rate of Joy-Con 2 connected in the browser.</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key><string>Joy-Con 2 rate booster</string>
+            <key>CFBundleURLSchemes</key><array><string>joycon2boost</string></array>
+        </dict>
+    </array>
+</dict>
+</plist>

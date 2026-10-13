@@ -107,3 +107,98 @@ Chrome → `http://localhost:8000`, SYNC → клик → выбрать Joy-Con
 Windows 11. Частота: **~17 Гц без утилиты**, **~67 Гц с `Joycon2Boost.exe`** (как в нативном билде). Цена 67 Гц —
 один раз скачать и запустить exe, дальше игра стартует его сама (B → `joycon2boost://`). Другие пути к частоте
 (дескриптор `679d5510…`, экстраполяция позы, подпись/Store/автозапуск) отложены. Следующий шаг — macOS.
+
+## 2026-10-13 · macOS 15.7.4 (arm64) · встроенный Broadcom BCM4388 (BT 5.3) · нативный транспорт, без Joy-Con
+
+Готового решения для Mac нет (PLAN, Фаза D) → свой CoreBluetooth `.bundle` с тем же C ABI, что у Windows DLL.
+
+| Что | Результат |
+|---|---|
+| Сборка `Native/macos/build.sh` (Xcode 26.3, clang 17, `-Wall -Wextra -Werror`) | ☑ без предупреждений; universal x86_64 + arm64; экспорт 10 функций `jc2_*` |
+| probe из терминала Claude Code | ✖ SIGABRT TCC: ответственный процесс — CLI без `NSBluetoothAlwaysUsageDescription` → probe сделан `.app`, запуск через `open` |
+| `open -W -n --stdout … joycon2probe.app --args 20 004C` (скан Apple) | ☑ init 12 мс, «Bluetooth powered on», 166 объявлений / 29 устройств за 20 с, троттлинг работает |
+| Скан `0x0553` 5 с | ☑ 0 событий (Joy-Con в SYNC рядом не было) — ожидаемо |
+| `jc2_shutdown` → `jc2_init` → `jc2_shutdown` | ☑ shutdown 0,2 мс, повторный init успешен |
+| Unity Editor 6000.3.18f1, Play | ☑ `[Joycon2] started (CoreBluetooth)` → `[Joycon2/native] Bluetooth powered on` → `scan started (company 0x0553)` |
+| `Kagefumi → Build macOS (dev)` (IL2CPP, universal) | ☑ `NSBluetoothAlwaysUsageDescription` в Info.plist, `Contents/PlugIns/Joycon2Ble.bundle`; запуск → те же три строки в Player.log |
+| **Баг, исправлен:** оверлей F9 создавал шрифт на каждый `OnGUI`, а на Mac (нет Consolas) ещё и сыпал предупреждение каждый кадр (~65 тыс. строк в логе за минуту) | Шрифт создаётся один раз, из установленных |
+
+**Дальше (нужны Joy-Con):** Play → SYNC → `ready as gamepad`; оба Joy-Con; Гц в F9; > 1 мин без обрыва; маппинг,
+гироскоп, SUN GRAB; то же в билде. Без Unity: `Native/macos/build/joycon2probe.app` с `--args --joycon 30`.
+
+## 2026-10-13 · macOS 15.7.4 · два Joy-Con 2 в Editor — частота
+
+Пользователь: оба Joy-Con подключаются и работают в Editor (L/R, LED P1/P2, калибровка factory), но **~30 Гц**.
+Причина — дефолтный интервал соединения macOS 30 мс (Joy-Con не просит короче, публичного API нет; switch2mac видел
+те же 30 мс). GATT на macOS: сервис `…7fd0` целиком (в т.ч. `4147423d…`, `d3bd69d2…`, `…7fde/7fdf`) + сервис `00c5af5d…`.
+
+Исправление (ждёт проверки, Unity нужно перезапустить — старый bundle загружен): приватные опции подключения
+`kCBConnectOptionRequiresLowLatency` / `LatencyCritical` / `OverrideMin/MaxCIFrames = 6` (по JamCon → 15 мс) + лог
+фактического интервала из приватного делегата. ☐ Гц в F9, строка `connection interval … ms` в консоли, оба Joy-Con.
+
+## 2026-10-13 · macOS 15.7.4 · Editor · после приватных опций подключения
+
+Пользователь: «работает» — частота поднялась (Гц из F9 не записан; ожидаемо ~66 при 15 мс). По логу: оба Joy-Con
+`connecting #N (low latency, CI frames 6)` → `ready after` 350 / 331 мс (было 1746 мс), L → P1, R → P2, калибровка factory.
+Приватный делегат `didUpdateConnectionParameters` при первом подключении не пришёл — фактический интервал в лог не попал.
+☐ Записать Гц из F9; проверить в билде `Kagefumi → Build macOS (dev)`; > 10 мин без обрывов.
+
+## 2026-10-13 · macOS 15.7.4 · WebGL-билд (Фаза C) — сборка и smoke-тест, без Joy-Con
+
+| Что | Результат |
+|---|---|
+| `Kagefumi → Build WebGL (dev, localhost)` на Mac (Unity 6000.3.18f1) | ☑ `Builds/WebGL`, 112 МБ, 218 с; предупреждение про `Joycon2Boost.exe` — ожидаемо (утилита только для Windows) |
+| `python3 -m http.server 8000 -d Builds/WebGL` → встроенный браузер Claude | ☑ лобби, оверлей; `[Joycon2] started (Web Bluetooth)` |
+| Chrome 155.0.8059.40 → `http://localhost:8000` | открыт, ☐ подключение Joy-Con — ждёт проверки на железе |
+
+## 2026-10-13 · macOS 15.7.4 · Chrome 155 · два Joy-Con 2 в WebGL — подключение, частота, графика
+
+Пользователь: оба Joy-Con подключаются, **имена в chooser нормальные** («Joy-Con 2 (L/R)»), L → P1, R → P2, калибровка
+factory, гироскоп живой. **Частота ~32–33 Гц** (F9: L 31.8, R 33.0) — дефолтный интервал macOS 30 мс; Chrome
+подключает без приватных опций, которые в Editor дают ~66 Гц.
+
+**Баг, исправлен: на Mac в WebGL не рисовалась графика** (только UI и линии). В консоли сотни
+`GL_INVALID_OPERATION: glDrawElements: Mismatch between texture format and sampler type (…shadow)`. Инструментировал
+WebGL в странице: шейдер семплирует `_AdditionalLightsShadowmapTexture` shadow-сэмплером, а привязана текстура без
+compare mode (и не depth: принудительный `TEXTURE_COMPARE_MODE` не помогает). Причина — URP 17.3: если источнику нечего
+затенять (днём фонари выключены, ночью солнце), он всё равно включает keyword теней и биндит RenderGraph
+`DefaultShadowTexture` (D32, без `CompareDepths`). ANGLE→Metal (Chrome на Mac) такой draw отклоняет, ANGLE→D3D11
+(Windows) пропускает. Обход — `Assets/Kagefumi/Scripts/WebGLShadowmapFix.cs` (только WebGL-плеер): после shadow-проходов
+подменяет 1×1 «пустую» карту на свою, созданную как настоящие (`ShadowUtils.AllocShadowRT`, D16). ☑ Встроенный Chromium
+(Metal): день, сумерки, ночь — всё рисуется, тени есть, ошибок нет.
+
+## 2026-10-13 · macOS 15.7.4 · Chrome 155 · частота в вебе — `joycon2boost.app` (эксперимент)
+
+Цель — 60+ Гц в WebGL на Mac. Chrome подключает Joy-Con без приватных опций → интервал 30 мс (~33 Гц). Инструмент
+`Native/macos/tools/joycon2boost.m` → `build/joycon2boost.app` (фоновое, без иконки в Dock; лог — stdout,
+`open -n --stdout /tmp/jc2boost.log … --args --measure`). Частота мерилась подпиской на `…7fd2` в самой утилите и
+совпадала с F9.
+
+| Опыт | Результат |
+|---|---|
+| Присоединиться к уже созданному Chrome соединению (`retrieveConnectedPeripheralsWithServices` + `connectPeripheral` с опциями + `setDesiredConnectionLatency:0`) | ✖ 33 Гц |
+| Утилита подключает первой (скан, опции), Chrome потом | ✖ 33 Гц ещё до Chrome; ✖ chooser Chrome уже подключённые устройства **не показывает** (ни с фильтром по имени, ни с `services:[…7fd0] + name`) |
+| То же, но как обычное активное приложение (`--foreground`) | ✖ 33 Гц — дело не в «переднем плане» |
+| Контроль: Editor Play | ☑ 60+ Гц (F9) — опции рабочие |
+| Контроль: `joycon2probe.app` (ad-hoc, тот же bundle) | ☑ 65,8–66,8 Гц — дело не в подписи/процессе |
+| Утилита без `setDesiredConnectionLatency:0` (bundle его по умолчанию не зовёт) | ☑ **66–67 Гц** на своём соединении. **Этот вызов сбрасывает переопределение CI** → по умолчанию выключен (`JC2_MAC_DESIRED_LATENCY`) |
+| Скан во время подключения / возобновление скана после | не влияет |
+| Присоединение к соединениям Chrome без этого вызова | ◐ **первый подключённый Joy-Con 33 Гц, второй 66–67** (дважды, опрос и раз в секунду, и 10 раз в секунду); повторное присоединение к медленному ничего не меняет |
+| Переподключить первый (SYNC → снова выбрать в Chrome), пока утилита держит второй | ☑ **оба 66–67 Гц** |
+
+**Вывод:** macOS фиксирует интервал при *создании* соединения и даёт 15 мс, если в этот момент в bluetoothd уже есть клиент
+с низкой задержкой (наша утилита на другом Joy-Con). Присоединение к готовому соединению интервал не меняет. Рабочий путь
+сейчас: утилита запущена → подключить оба Joy-Con в Chrome → первый переподключить → оба ~66 Гц.
+☐ Сделать без ручного переподключения первого.
+
+## 2026-10-13 · macOS 15.7.4 · Chrome 155 · 66 Гц в вебе — переподключение медленного и запуск утилиты из игры
+
+- Автопереподключение медленного Joy-Con (`Joycon2Manager.RefreshSlowLinks`): игра закрывает соединение и через 1,5 с
+  зовёт `gatt.connect()` — ✖ Joy-Con 2 после отключения хостом подключение **не принимает**, пока не нажать SYNC; и
+  одного SYNC мало — Chrome подключил его только после повторного выбора в chooser. Поэтому: подсказка в игре
+  («Speeding up Joy-Con 2 (L): hold SYNC on it — … pick it again»), chooser открывается во время переподключения, выбор того
+  же Joy-Con продолжает его сессию (игрок и gamepad те же). ☑ Пользователь: «работает, приходится кликать самому».
+- `joycon2boost.app` — агент (без Dock), `joycon2boost://` в Info.plist, лог `~/Library/Logs/joycon2boost.log`, выход
+  после 10 мин без Joy-Con. ☑ `open joycon2boost://start` запускает, второй URL попадает в тот же процесс. ☑ Из игры: B →
+  Chrome «Открыть joycon2boost?» → утилита запущена, второй Joy-Con сразу ~66 Гц, первый — после переподключения по подсказке.
+- Скачивание `Joycon2Boost-mac.zip` из игры (вторая B) — ☐ не проверено (утилита уже была зарегистрирована).

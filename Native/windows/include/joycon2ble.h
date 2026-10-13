@@ -1,35 +1,51 @@
-// Joycon2Ble — thin BLE GATT transport for Windows (C++/WinRT), consumed from Unity via P/Invoke.
+// Joycon2Ble — thin BLE GATT transport, consumed from Unity via P/Invoke. One C ABI, two implementations:
+// Windows (C++/WinRT, src/joycon2ble.cpp) and macOS (CoreBluetooth, Native/macos/src/joycon2ble.m).
 //
-// The DLL knows nothing about Nintendo: it scans for advertisements of a given company id, connects
+// The library knows nothing about Nintendo: it scans for advertisements of a given company id, connects
 // to a BLE address, subscribes to characteristics and writes bytes. All protocol logic lives in C#.
 //
-// Threading: every call is non-blocking. WinRT work runs on internal threads (one per device);
+// Threading: every call is non-blocking. Bluetooth work runs on internal threads/queues;
 // results are pushed into a single event queue that the caller drains with jc2_poll_event().
+//
+// Addresses: Bluetooth MACs on Windows. CoreBluetooth hides them, so on macOS an "address" is a
+// process-local id (1, 2, …) given to each peripheral the first time it is seen.
 #pragma once
 
 #include <stdint.h>
 
-#ifdef JC2_EXPORTS
-#define JC2_API extern "C" __declspec(dllexport)
+#ifdef __cplusplus
+#define JC2_EXTERN_C extern "C"
 #else
-#define JC2_API extern "C" __declspec(dllimport)
+#define JC2_EXTERN_C
+#endif
+
+#if defined(_WIN32)
+#ifdef JC2_EXPORTS
+#define JC2_API JC2_EXTERN_C __declspec(dllexport)
+#else
+#define JC2_API JC2_EXTERN_C __declspec(dllimport)
+#endif
+#else
+#define JC2_API JC2_EXTERN_C __attribute__((visibility("default")))
 #endif
 
 #define JC2_VERSION 1
+
+#define JC2_ERROR_NO_USAGE_DESCRIPTION (-2)
 
 enum jc2_event_type
 {
     JC2_EVENT_NONE = 0,
     JC2_EVENT_LOG = 1,            // status = level (0 info, 1 warning, 2 error); payload = UTF-8 text
-    JC2_EVENT_DEVICE_FOUND = 2,   // address, rssi, tag = address type (0 public, 1 random);
+    JC2_EVENT_DEVICE_FOUND = 2,   // address, rssi, tag = address type (0 public, 1 random; macOS: always 0);
                                   // payload = manufacturer data after the 2-byte company id
     JC2_EVENT_CONNECTED = 3,      // handle, address, status = max PDU size (ATT MTU)
-    JC2_EVENT_CONNECT_FAILED = 4, // handle, address, status = HRESULT / GattCommunicationStatus
+    JC2_EVENT_CONNECT_FAILED = 4, // handle, address, status = HRESULT / GattCommunicationStatus (macOS: NSError code)
     JC2_EVENT_DISCONNECTED = 5,   // handle, address — link lost (not sent for jc2_disconnect)
     JC2_EVENT_SUBSCRIBED = 6,     // handle, tag, status (0 = ok)
     JC2_EVENT_NOTIFICATION = 7,   // handle, tag, payload = characteristic value
     JC2_EVENT_WRITE_FAILED = 8,   // handle, status
-    JC2_EVENT_SCAN_STOPPED = 9,   // status = BluetoothError (0 = stopped on request)
+    JC2_EVENT_SCAN_STOPPED = 9,   // status = BluetoothError (macOS: CBManagerState); 0 = on request
 };
 
 // 32 bytes, natural alignment — mirrored by a [StructLayout(Sequential)] struct in C#.
@@ -47,6 +63,8 @@ typedef struct jc2_event
 JC2_API int32_t jc2_version(void);
 
 // Idempotent. Must be called before anything else; jc2_shutdown() + jc2_init() is a full restart.
+// Returns 0, or (macOS) JC2_ERROR_NO_USAGE_DESCRIPTION: the app's Info.plist has no
+// NSBluetoothAlwaysUsageDescription, and touching CoreBluetooth would make macOS kill the process.
 JC2_API int32_t jc2_init(void);
 // Stops scanning, drops every connection and clears the event queue.
 JC2_API void jc2_shutdown(void);

@@ -13,8 +13,13 @@ namespace Kagefumi.EditorTools
     {
         const string Scene = "Assets/Kagefumi/Scenes/Kagefumi.unity";
         const string Output = "Builds/WebGL";
-        /// <summary>Windows rate helper (Native/windows/build.ps1), served next to index.html for the in-game download.</summary>
-        const string Booster = "Native/windows/build/Joycon2Boost.exe";
+        /// <summary>Rate helpers (Native/windows/build.ps1, Native/macos/build.sh), served next to index.html for the
+        /// in-game download (Joycon2RateBooster.DownloadUrl).</summary>
+        static readonly (string path, string script)[] Boosters =
+        {
+            ("Native/windows/build/Joycon2Boost.exe", "Native/windows/build.ps1"),
+            ("Native/macos/build/Joycon2Boost-mac.zip", "Native/macos/build.sh"),
+        };
 
         [MenuItem("Kagefumi/Build WebGL (dev, localhost)")]
         public static void Build() => BuildWebGL();
@@ -50,12 +55,13 @@ namespace Kagefumi.EditorTools
             var summary = report.summary;
             bool ok = summary.result == BuildResult.Succeeded;
             if (ok)
-            {
-                if (System.IO.File.Exists(Booster))
-                    System.IO.File.Copy(Booster, System.IO.Path.Combine(Output, "Joycon2Boost.exe"), true);
-                else
-                    Debug.LogWarning($"[Kagefumi] {Booster} not found (Native/windows/build.ps1): the in-game helper download will 404.");
-            }
+                foreach (var (path, script) in Boosters)
+                {
+                    if (System.IO.File.Exists(path))
+                        System.IO.File.Copy(path, System.IO.Path.Combine(Output, System.IO.Path.GetFileName(path)), true);
+                    else
+                        Debug.LogWarning($"[Kagefumi] {path} not found ({script}): its in-game helper download will 404.");
+                }
             if (ok)
                 Debug.Log($"[Kagefumi] WebGL build: {System.IO.Path.GetFullPath(Output)} ({summary.totalSize / (1024 * 1024)} MB, " +
                           $"{summary.totalTime.TotalSeconds:0} s). Serve: python -m http.server 8000 -d {Output}");

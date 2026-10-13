@@ -259,10 +259,12 @@ var Joycon2WebBluetooth = {
     });
   },
 
-  // Not transport: helpers for the Windows rate booster (Joycon2RateBooster.cs).
-  jc2web_is_windows: function () {
+  // Not transport: helpers for the rate booster (Joycon2RateBooster.cs). 1 = Windows, 2 = macOS, 0 = other.
+  jc2web_os: function () {
     var platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
-    return /^win/i.test(platform) || /Windows NT/.test(navigator.userAgent) ? 1 : 0;
+    if (/^win/i.test(platform) || /Windows NT/.test(navigator.userAgent)) return 1;
+    if (/^mac/i.test(platform) || /Mac OS X/.test(navigator.userAgent)) return 2;
+    return 0;
   },
 
   // Follows a link without leaving the page: a custom protocol (the OS starts its app; Chrome asks first) or a

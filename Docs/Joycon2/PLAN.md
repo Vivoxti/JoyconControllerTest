@@ -10,7 +10,7 @@
 >
 > Протокол (UUID, команды, разметка репорта): [PROTOCOL.md](PROTOCOL.md).
 
-Последнее обновление: 2026-10-13 (Фазы 1, A, B — работают на железе; следующая — C, macOS). Unity 6000.3.18f1, Input System 1.19.0.
+Последнее обновление: 2026-10-13 (Фазы 1, A, B, C, D — работают на железе; C — 66 Гц с `joycon2boost.app`; D — частота поднята приватными опциями CoreBluetooth). Unity 6000.3.18f1, Input System 1.19.0.
 
 ---
 
@@ -128,7 +128,7 @@ Assets/Joycon2/
     Core/          Joycon2Protocol.cs, Joycon2Report.cs, Joycon2Session.cs (handshake FSM),
                    Joycon2Calibration.cs, Joycon2Mapping.cs (боковой хват)
     Input/         Joycon2Gamepad.cs (layout), Joycon2Manager.cs (опрос транспорта → устройства)
-    Transport/     IJoycon2Transport.cs, WindowsTransport.cs, MacTransport.cs,
+    Transport/     IJoycon2Transport.cs, NativeTransport.cs (Win + Mac, один C ABI),
                    AndroidTransport.cs, WebBluetoothTransport.cs, NullTransport.cs
     Debug/         Joycon2DebugOverlay.cs (сырые байты, Hz, кнопки, запись дампов)
   Plugins/
@@ -265,7 +265,7 @@ Docs/Joycon2/      этот план + PROTOCOL.md + заметки по рез�
   Тестовый режим «солнце из зенита» удалён.
 - ☐ Наиграть и подобрать коэффициенты (gain, длительность, интервал, автоцентр).
 
-### Фаза B/C — WebGL, Chrome/Edge на Windows и macOS — B ☑ (Windows работает), C ☐ (macOS — следующий шаг)
+### Фаза B/C — WebGL, Chrome/Edge на Windows и macOS — B ☑ (Windows работает), C ☑ (macOS: 33 Гц, 66 Гц — с `joycon2boost.app` и одним переподключением)
 
 **Итог по Windows (2026-10-13):** два Joy-Con 2 играют в WebGL-билде в Chrome со всем управлением (кнопки, стики,
 гироскоп, SUN GRAB). Сам по себе веб даёт **~17 Гц** (интервал 60 мс — его не изменить из страницы). С
@@ -303,15 +303,19 @@ Docs/Joycon2/      этот план + PROTOCOL.md + заметки по рез�
   на обоих (TEST_LOG). Репорты полные (парсер принимает), хотя MTU Chrome не сообщает.
 - ☐ Windows: пройти путь целиком после пересборки — первый ручной запуск exe → B в игре → Chrome «Открыть?» → 67 Гц;
   скачивание по второму B; Edge; переподключение после выключения Joy-Con; LED по слоту.
-- ☐ **macOS + Chrome (Фаза C) — завтра.** План проверки:
-  1. Собрать тот же WebGL-билд (`Kagefumi → Build WebGL`) или скопировать `Builds/WebGL` с Windows; на Mac —
-     `python3 -m http.server 8000 -d Builds/WebGL` → Chrome `http://localhost:8000`.
-  2. Chrome должен получить доступ к Bluetooth: System Settings → Privacy & Security → Bluetooth.
-  3. SYNC → клик/J → выбрать Joy-Con → кнопка на Joy-Con; оба Joy-Con; **Гц в оверлее F9** — ожидаем ~30–66 Гц без
-     утилиты (CoreBluetooth сам договаривается; если так — Joycon2Boost на Mac не нужен).
-  4. Есть ли у Chrome на Mac имя устройства (иначе сторону читает `ReadInfo`) — смотреть лог `[Joycon2] picked …`.
-  5. Keep-alive LED 1 Гц уже есть: проверить, что связь не рвётся через ~15 с (PROTOCOL.md, macOS).
-  6. Подсказка про B в игре на Mac не появится (`Joycon2RateBooster.Available` только на Windows).
+- ☑ **macOS + Chrome (Фаза C), 2026-10-13** (TEST_LOG): два Joy-Con играют, имена в chooser есть, **~33 Гц** без утилиты.
+  - ☑ Графика: на Mac Lit-меши не рисовались (URP 17.3 биндит в WebGL битую «пустую» карту теней, ANGLE→Metal отклоняет
+    draw) → `Assets/Kagefumi/Scripts/WebGLShadowmapFix.cs` (только WebGL-плеер).
+  - ☑ **66 Гц с `joycon2boost.app`** (`Native/macos/tools/joycon2boost.m`, собирается `build.sh`, zip — для скачивания из
+    игры). macOS задаёт интервал при *создании* соединения и даёт 15 мс, если в bluetoothd уже есть клиент с приватными
+    опциями низкой задержки; присоединение к готовому соединению ничего не меняет. Утилита присоединяется ко всем
+    соединениям Chrome с этими опциями → Joy-Con, подключённые после неё, сразу ~66 Гц. Первый остаётся ~33 Гц: утилита его
+    отпускает, игра (`RefreshSlowLinks`) закрывает и просит SYNC + повторный выбор (сам Joy-Con без SYNC не возвращается) —
+    игрок и gamepad сохраняются. `setDesiredConnectionLatency:0` сбрасывает ускорение — не звать. Chooser Chrome уже
+    подключённые устройства не показывает.
+  - ☑ Запуск из игры: B → `joycon2boost://start` (та же ссылка, что на Windows; `Joycon2RateBooster` различает ОС),
+    вторая B — скачать `Joycon2Boost-mac.zip` (☐ не проверено). Первый запуск руками: правый клик → Open (ad-hoc подпись).
+  - ☐ Keep-alive: > 10 мин без обрывов в вебе на Mac.
 - ☐ Перезагрузка страницы рвёт соединения; переподключение — снова SYNC + chooser
   (app-level bonding в вебе невозможен: нет адреса хоста).
 
@@ -328,19 +332,47 @@ Docs/Joycon2/      этот план + PROTOCOL.md + заметки по рез�
   - запущенная браузером копия одна (mutex) и сама закрывается через 60 с без подключённых Joy-Con. Без него — 17 Гц: стик и кнопки играбельны, поза не
 «плывёт» (dt по IMU-таймстемпу), солнце в SUN GRAB дёргается → вариант на будущее: экстраполяция позы по гироскопу.
 
-### Фаза D — macOS (Standalone + Editor) ☐
+### Фаза D — macOS (Standalone + Editor) ◐ (два Joy-Con работают в Editor с высокой частотой; билд с Joy-Con — проверить)
 
-- ☐ `Native/macos`: Obj-C `.bundle`, universal (arm64 + x86_64). `CBCentralManager` → scan по
-  manufacturer data → connect → discover → `writeValue:type:CBCharacteristicWriteWithoutResponse`,
-  `setNotifyValue:YES`.
-- ☐ **Keep-alive 1 Гц** (например, повторная запись player LED) — иначе macOS молча рвёт связь
-  через ~10–17 c после последней записи. Это реализуем в C#-ядре для всех платформ (дёшево и безвредно).
-- ☐ `NSBluetoothAlwaysUsageDescription` в Info.plist билда (post-process build step).
-- ☐ Editor: macOS спросит доступ к Bluetooth для самого Unity Editor; при отказе — включить в
-  System Settings → Privacy & Security → Bluetooth. Задокументировать.
-- ☐ Подпись/notarization не нужна для локальных тестов; Gatekeeper может ругаться на неподписанный
-  bundle — `xattr -dr com.apple.quarantine`.
-- ☐ Учесть: CoreBluetooth не даёт управлять connection interval → потолок ~66 Гц. Для нас ок.
+Готового решения нет (проверено 2026-10-13): Apple GameController и Unity Input System Joy-Con 2 не видят, SDL3 —
+только USB (BLE-форк — только Windows), switch2mac — виртуальный HID (без лицензии, entitlement от Apple, в Unity
+был бы `Joystick`), JoyCon2Mac — DriverKit с выключенным SIP и L+R в один пад. Поэтому — свой тонкий транспорт.
+
+- ☑ `Native/macos/src/joycon2ble.m`: Obj-C (ARC) `.bundle`, universal arm64 + x86_64, macOS 11+, **тот же C ABI**, что у
+  Windows DLL (`Native/windows/include/joycon2ble.h` стал общим). Сборка: `Native/macos/build.sh` (только Xcode CLT) →
+  `Assets/Joycon2/Plugins/macOS/Joycon2Ble.bundle` (ad-hoc подпись). **Editor не выгружает bundle: после Play Mode
+  перед пересборкой закрыть Unity.** Устройство:
+  - один последовательный `dispatch_queue` владеет `CBCentralManager` и всеми `CBPeripheral` → состояние без локов;
+    колбэки только кладут события в очередь, C# забирает `jc2_poll_event` — как на Windows;
+  - скан `scanForPeripheralsWithServices:nil` + `AllowDuplicates` (иначе вход в SYNC можно не увидеть), фильтр по
+    company id в manufacturer data, троттлинг 250 мс на устройство;
+  - CoreBluetooth **не отдаёт MAC**: «адрес» — локальный id процесса по `peripheral.identifier` (в логах `mac#1`;
+    `IJoycon2Transport.LocalAddressPrefix`);
+  - connect → `discoverServices:nil` → все характеристики → `CONNECTED` (MTU = `maximumWriteValueLength` + 3);
+    операции до этого момента откладываются; write-without-response — через очередь и
+    `peripheralIsReadyToSendWriteWithoutResponse` (иначе CoreBluetooth молча теряет записи при полном буфере);
+  - выключение Bluetooth → `SCAN_STOPPED` + `DISCONNECTED` всем (CoreBluetooth в этом случае `didDisconnect` не шлёт).
+- ☑ C#: `Joycon2WindowsTransport` → **`Joycon2NativeTransport`** (Win + Mac, `UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX`).
+- ☑ **TCC.** Без `NSBluetoothAlwaysUsageDescription` в Info.plist macOS убивает процесс на первом вызове CoreBluetooth
+  (проверено: SIGABRT `__TCC_CRASHING_DUE_TO_PRIVACY_VIOLATION__`). У Unity Editor 6000.3.18f1 ключ есть. Для билда —
+  Player Settings → macOS → **Bluetooth Usage Description** (заполнено; `Kagefumi → Build macOS (dev)` заполняет, если
+  пусто). `jc2_init` без ключа возвращает `-2` вместо падения, C# пишет, что делать. Отказ в доступе →
+  лог «System Settings → Privacy & Security → Bluetooth».
+- ☑ Keep-alive 1 Гц — уже в C#-ядре (LED), на Mac ничего добавлять не нужно.
+- ☑ Smoke-тест без Unity: `Native/macos/build/joycon2probe.app` (запуск через `open`, см. TEST_LOG), режим `--joycon` —
+  минимальный handshake и Гц без Unity.
+- ☑ Editor (Play) и IL2CPP-билд `Kagefumi → Build macOS (dev)` → `Builds/macOS/Kagefumi.app`: транспорт стартует, Bluetooth
+  powered on, скан идёт.
+- ☐ **Проверка на железе:** Play → SYNC на Joy-Con → `[Joycon2] … ready as gamepad`; оба Joy-Con; Гц в F9 (ожидаем
+  ~66); связь не рвётся > 1 мин (keep-alive); маппинг/гироскоп как на Windows; повторное подключение после выключения.
+- ☐ Подпись/notarization для раздачи не делалась; Gatekeeper на чужом Mac — `xattr -dr com.apple.quarantine Kagefumi.app`.
+- ☑ **Частота.** Первый прогон на железе: два Joy-Con работают, но **~30 Гц** — дефолтный интервал macOS 30 мс,
+  публичного API нет. Плагин теперь подключается с приватными опциями (`RequiresLowLatency`, `LatencyCritical`,
+  `OverrideMin/MaxCIFrames = 6`, как JamCon → 15 мс / ~66 Гц) и логирует фактический интервал
+  (`connection interval … ms` — при первом подключении этот делегат не приходит). **Проверено: работает** (пользователь,
+  2026-10-13; handshake 350 мс вместо 1,7 с). Эксперименты без пересборки: `JC2_MAC_CI_FRAMES` (0 = выкл., меньше 6 —
+  короче?), `JC2_MAC_DESIRED_LATENCY=0` (SPI `setDesiredConnectionLatency`). Если не поможет — запись `85 00` в
+  дескриптор `679d5510…` (нужен новый вызов транспорта `write descriptor`; PROTOCOL.md).
 
 ### Фаза E — WebGL на Android (Chrome) ☐
 

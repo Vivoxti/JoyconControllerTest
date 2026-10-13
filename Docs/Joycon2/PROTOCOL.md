@@ -186,8 +186,18 @@ Report ID в BLE-репорте нет; L и R шлют одинаковый ф�
   `BluetoothLEDevice.RequestPreferredConnectionParameters(ThroughputOptimized)` (так делает joycon2cpp;
   мы тоже) → проверено: 15 мс, ~66 Гц. Запрос действует на соединение, а не на процесс: им можно ускорить и
   Joy-Con, подключённый Chrome'ом (`Joycon2Boost.exe`), пока объект запроса жив. Частые повторные коннекты подряд → контроллер «глохнет» на несколько минут: нужен back-off.
-- **macOS:** keep-alive 1 Гц; потолок ~66 Гц (connection interval не управляется).
-  `NSBluetoothAlwaysUsageDescription`.
+- **macOS:** keep-alive 1 Гц. **Частота:** публичного API для connection interval нет, Joy-Con его не просит → дефолт
+  macOS **30 мс ≈ 33 Гц** (проверено; switch2mac видел то же: interval 24 × 1,25 мс). Обход — приватные ключи опций
+  `connectPeripheral:options:` (их читает `bluetoothd`, так делает JamCon, MIT): `kCBConnectOptionRequiresLowLatency`,
+  `kCBConnectOptionLatencyCritical`, `kCBConnectOptionOverrideMinCIFrames`/`MaxCIFrames` = 6 → 15 мс (значения
+  непрозрачные, не единицы 1,25 мс; действуют только при новом подключении). Фактический интервал приходит в приватный
+  делегат `centralManager:didUpdateConnectionParameters:interval:latency:supervisionTimeout:` (NSNumber, × 1,25 мс).
+  Ещё есть дескриптор `679d5510-5a24-4dee-9557-95df80486ecb` на `…7fd2` (и компактных input): консоль пишет `85 00`
+  перед CCCD, JamCon трактует как Гц (LE: `0x42` = 66, `0x85` = 133); на Windows 66 Гц получаем и без него. Нет SMP — CoreBluetooth сам не
+  спаривает, пока не трогать зашифрованные характеристики. MAC контроллера CoreBluetooth не отдаёт (только
+  `peripheral.identifier`, свой на каждом Mac). **TCC:** без `NSBluetoothAlwaysUsageDescription` в Info.plist
+  *ответственного* приложения процесс убивается (SIGABRT) — у Unity Editor ключ есть; консольная утилита, запущенная из
+  терминала/IDE, наследует приложение-родителя, поэтому probe — `.app`, запускать через `open`.
 - **Android:** `requestMtu(517)` до подписки (иначе нотификации режутся до 20 байт); GATT-операции
   строго по одной.
 - **Web:** HTTPS/localhost, `requestDevice` только из жеста пользователя, один chooser = одно

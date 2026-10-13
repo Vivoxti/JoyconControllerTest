@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using UnityEngine;
@@ -44,16 +45,26 @@ namespace Joycon2
         void OnGUI()
         {
             if (!visible) return;
-            style ??= new GUIStyle(GUI.skin.box)
+            if (style == null)
             {
-                alignment = TextAnchor.UpperLeft,
-                fontSize = 13,
-                richText = false,
-                wordWrap = false,
-            };
+                style = new GUIStyle(GUI.skin.box)
+                {
+                    alignment = TextAnchor.UpperLeft,
+                    fontSize = 13,
+                    richText = false,
+                    wordWrap = false,
+                };
 #if !UNITY_WEBGL || UNITY_EDITOR
-            style.font = Font.CreateDynamicFontFromOSFont(new[] { "Consolas", "Menlo", "Courier New" }, 13); // no OS fonts on the web
+                // No OS fonts on the web. Only an installed name: a missing one (Consolas on macOS) warns on every draw.
+                var installed = new HashSet<string>(Font.GetOSInstalledFontNames());
+                foreach (string name in new[] { "Consolas", "Menlo", "Courier New" })
+                    if (installed.Contains(name))
+                    {
+                        style.font = Font.CreateDynamicFontFromOSFont(name, 13);
+                        break;
+                    }
 #endif
+            }
 
             text.Clear();
             text.Append("Joy-Con 2  [F9 hide, F10 ").Append(recording == null ? "record" : "stop recording").Append("]\n");
@@ -71,6 +82,7 @@ namespace Joycon2
                 text.Append('\n').Append(c.Name).Append("  ").Append(c.AddressText)
                     .Append("  ").Append(s.State).Append(s.State == Joycon2Session.SessionState.Ready ? "" : $" ({s.Status})");
                 if (c.Device != null) text.Append("  device #").Append(c.Device.deviceId).Append("  P").Append(c.PlayerIndex + 1);
+                if (c.Refreshing) text.Append("  RELINKING for a faster link: press SYNC on it");
                 text.Append('\n');
                 text.Append($"  MTU {c.Mtu}  {c.ReportRate,5:0.0} Hz  reports {s.ReportCount}  calib {s.CalibratedFrom}");
                 if (c.WriteFailures > 0) text.Append("  write failures ").Append(c.WriteFailures);

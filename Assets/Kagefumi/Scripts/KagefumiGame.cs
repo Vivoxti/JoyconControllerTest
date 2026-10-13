@@ -69,6 +69,7 @@ namespace Kagefumi
         bool rematchReady, noonAnnounced, joyconPickRequested, boostRequested;
         BoostStage boostStage;
         float boostLaunchedAt;
+        Joycon2.Joycon2Controller relinking;
         DayCycle.Phase lastPhase;
 
         void OnEnable()
@@ -114,6 +115,7 @@ namespace Kagefumi
         {
             UpdateJoyconPicking();
             UpdateRateBoost();
+            UpdateLinkRefresh();
             ProcessDeviceQueues();
             Physics.SyncTransforms();
             UpdateLocks();
@@ -209,8 +211,9 @@ namespace Kagefumi
         }
 
         /// <summary>
-        /// Windows + browser: Joy-Con 2 stay at ~17 Hz unless the Joycon2Boost helper runs (see Joycon2RateBooster).
-        /// While one is slow, B starts the helper; if the rate does not go up, the next B downloads it.
+        /// Browser on Windows / macOS: Joy-Con 2 stay at ~17 / ~33 Hz unless the joycon2boost helper runs (see
+        /// Joycon2RateBooster). While one is slow, B starts the helper; if the rate does not go up, the next B downloads it.
+        /// On macOS the helper only speeds up links made while it runs, so the hints say which Joy-Con to reconnect.
         /// </summary>
         void UpdateRateBoost()
         {
@@ -244,6 +247,11 @@ namespace Kagefumi
                 }
             }
 
+            if (Joycon2.Joycon2RateBooster.Platform == Joycon2.Joycon2RateBooster.HelperPlatform.Mac)
+            {
+                hud.SetNotice(MacBoostNotice(slow));
+                return;
+            }
             switch (boostStage)
             {
                 case BoostStage.Launched:
@@ -258,6 +266,50 @@ namespace Kagefumi
                 default:
                     hud.SetNotice($"Joy-Con 2 at {slow:0} Hz — press B for ~67 Hz (Windows helper)");
                     break;
+            }
+        }
+
+        string MacBoostNotice(float slow)
+        {
+            bool bothIn = Joycon2.Joycon2Manager.Controllers.Count >= Joycon2.Joycon2Manager.MaxControllers;
+            switch (boostStage)
+            {
+                case BoostStage.Launched:
+                    return "Starting joycon2boost… allow it in the browser prompt";
+                case BoostStage.OfferDownload:
+                    return bothIn
+                        ? "Still ~33 Hz? With joycon2boost running, reload the page and connect both Joy-Con again — no helper yet? Press B to download it"
+                        : "joycon2boost speeds up the Joy-Con connected after it: connect the second one — no helper yet? Press B to download it";
+                case BoostStage.Downloaded:
+                    return "Unzip Joycon2Boost-mac.zip, right-click joycon2boost → Open once (allow Bluetooth), then press B";
+                default:
+                    return $"Joy-Con 2 at {slow:0} Hz — press B for ~66 Hz (Mac helper joycon2boost)";
+            }
+        }
+
+        /// <summary>
+        /// Mac + browser (with joycon2boost): the first Joy-Con keeps a slow link until it is rebuilt, which needs SYNC on
+        /// it (Joycon2Manager.RefreshSlowLinks). Rebuilds start only between rounds; the notice says what to do.
+        /// </summary>
+        void UpdateLinkRefresh()
+        {
+            Joycon2.Joycon2Manager.RefreshSlowLinks = CurrentState != State.Playing && CurrentState != State.Countdown;
+            Joycon2.Joycon2Controller waiting = null;
+            foreach (var c in Joycon2.Joycon2Manager.Controllers)
+                if (c.Refreshing) waiting = c;
+
+            if (waiting != null)
+            {
+                hud.SetNotice($"Speeding up {waiting.Name}: hold SYNC on it — if it doesn't come back, click (or press J) and pick it again");
+                relinking = waiting;
+            }
+            else if (relinking != null)
+            {
+                hud.SetNotice(null);
+                bool back = false;
+                foreach (var c in Joycon2.Joycon2Manager.Controllers) back |= c == relinking;
+                if (back) hud.Toast("JOY-CON 2 SPED UP", Gold, 1.5f);
+                relinking = null;
             }
         }
 

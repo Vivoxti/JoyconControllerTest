@@ -37,6 +37,13 @@ namespace Joycon2
         internal long rateWindowCount;
         internal double rateWindowStart;
 
+        /// <summary>Being reconnected for a faster link (<see cref="Joycon2Manager.RefreshSlowLinks"/>); the gamepad stays.</summary>
+        public bool Refreshing => refreshUntil > 0;
+        internal double refreshUntil;     // > 0 while refreshing: give up after this
+        internal double refreshConnectAt; // > 0: the link is closed, connect again at this time
+        internal double slowSince = -1;
+        internal int refreshCount;
+
         public string Name => Side == Joycon2Side.Left ? "Joy-Con 2 (L)" : "Joy-Con 2 (R)";
         public string AddressText => Joycon2Manager.FormatAddress(Address);
     }
@@ -62,6 +69,24 @@ namespace Joycon2
         public static double RetryCooldown = 3.0;
         public static Joycon2SessionOptions SessionOptions = new Joycon2SessionOptions();
 
+        /// <summary>
+        /// Web only. macOS fixes a link's interval when the link is created, and makes it fast (15 ms) only if another app
+        /// already holds a low-latency link then (Native/macos joycon2boost). So with the helper running the first Joy-Con
+        /// stays at ~33 Hz while the second gets ~66: reconnect a link that is much slower than another one. The
+        /// gamepad and its player stay; only the link is rebuilt. The Joy-Con only accepts the new link in SYNC: show
+        /// <see cref="Joycon2Controller.Refreshing"/> as "press SYNC on it" (picking it in the chooser again also works).
+        /// Turn it off while a refresh would get in the way (mid-round); one already running goes on.
+        /// </summary>
+        public static bool RefreshSlowLinks = true;
+        public static float SlowLinkRate = 45f;
+        public static float FastLinkRate = 55f;
+        public static double SlowLinkSeconds = 4.0;
+        public static int MaxLinkRefreshes = 3;
+        /// <summary>Pause between closing and reopening: Chrome would reattach to the old link while it is still up.</summary>
+        public static double RefreshDelay = 1.5;
+        public static double RefreshAttemptTimeout = 8.0;
+        public static double RefreshTimeout = 120.0;
+
         public static IJoycon2Transport Transport { get; private set; }
         public static bool IsRunning { get; private set; }
         /// <summary>
@@ -70,7 +95,17 @@ namespace Joycon2
         /// </summary>
         public static bool ConnectsOnRequest => Transport != null && Transport.RequiresUserGesture;
         /// <summary>A <see cref="RequestController"/> call would open the chooser now.</summary>
-        public static bool CanRequestController => IsRunning && ConnectsOnRequest && !pickPending && controllers.Count < MaxControllers;
+        public static bool CanRequestController => IsRunning && ConnectsOnRequest && !pickPending &&
+                                                   (controllers.Count < MaxControllers || AnyRefreshing);
+        static bool AnyRefreshing
+        {
+            get
+            {
+                foreach (var c in controllers)
+                    if (c.Refreshing) return true;
+                return false;
+            }
+        }
         public static bool IsScanning { get; private set; }
         public static string Status { get; private set; } = "stopped";
         public static IReadOnlyList<Joycon2Controller> Controllers => controllers;
@@ -197,27 +232,32 @@ namespace Joycon2
             return true;
         }
 
-        /// <summary>Web Bluetooth requestDevice options: manufacturer data with the PID (as the reference web demo).</summary>
+        /// <summary>
+        /// Web Bluetooth requestDevice options: manufacturer data with the PID (as the reference web demo), or the service
+        /// and the exact name. Chrome on macOS also lists devices another app already connected (joycon2boost --connect):
+        /// it finds them by the services in the filters, and they have no advertisement data to match.
+        /// </summary>
         static string BuildDeviceRequest(Joycon2Side? side)
         {
             var filters = new StringBuilder();
-            void Filter(ushort pid)
+            void Filter(ushort pid, string name)
             {
                 if (filters.Length > 0) filters.Append(',');
                 // Manufacturer data after the company id: [3..4] VID, [5..6] PID — match the PID only.
                 filters.Append("{\"manufacturerData\":[{\"companyIdentifier\":").Append(Joycon2Protocol.CompanyId)
                        .Append(",\"dataPrefix\":[0,0,0,0,0,").Append(pid & 0xFF).Append(',').Append(pid >> 8)
-                       .Append("],\"mask\":[0,0,0,0,0,255,255]}]}");
+                       .Append("],\"mask\":[0,0,0,0,0,255,255]}]},{\"services\":[\"").Append(Joycon2Protocol.ServiceUuid)
+                       .Append("\"],\"name\":\"").Append(name).Append("\"}");
             }
-            if (side != Joycon2Side.Right) Filter(Joycon2Protocol.ProductIdLeft);
-            if (side != Joycon2Side.Left) Filter(Joycon2Protocol.ProductIdRight);
+            if (side != Joycon2Side.Right) Filter(Joycon2Protocol.ProductIdLeft, "Joy-Con 2 (L)");
+            if (side != Joycon2Side.Left) Filter(Joycon2Protocol.ProductIdRight, "Joy-Con 2 (R)");
             return $"{{\"filters\":[{filters}],\"optionalServices\":[\"{Joycon2Protocol.ServiceUuid}\"]}}";
         }
 
         static IJoycon2Transport CreateTransport()
         {
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
-            return new Joycon2WindowsTransport();
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN || UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
+            return new Joycon2NativeTransport();
 #elif UNITY_WEBGL
             return new Joycon2WebBluetoothTransport();
 #else
@@ -238,6 +278,7 @@ namespace Joycon2
             for (int i = controllers.Count - 1; i >= 0; i--)
                 UpdateController(controllers[i], now);
 
+            if (ConnectsOnRequest) CheckSlowLinks(now);
             UpdateScanning(now);
         }
 
@@ -269,11 +310,13 @@ namespace Joycon2
                     break;
 
                 case Joycon2TransportEventType.ConnectFailed:
-                    if (c != null) Drop(c, $"connect failed (0x{e.Status:X8})", RetryCooldown);
+                    if (c != null && c.Refreshing) RetryRefresh(c, now, $"connect failed (0x{e.Status:X8})");
+                    else if (c != null) Drop(c, $"connect failed (0x{e.Status:X8})", RetryCooldown);
                     break;
 
                 case Joycon2TransportEventType.Disconnected:
-                    if (c != null) Drop(c, "link lost", RetryCooldown);
+                    if (c != null && c.Refreshing) RetryRefresh(c, now, "link lost");
+                    else if (c != null) Drop(c, "link lost", RetryCooldown);
                     break;
 
                 case Joycon2TransportEventType.Subscribed:
@@ -341,7 +384,13 @@ namespace Joycon2
             foreach (var existing in controllers)
                 if (existing.Address == e.Address)
                 {
-                    Debug.Log($"[Joycon2] {existing.Name} {existing.AddressText} is already connected");
+                    if (existing.Refreshing && existing.Session.State != Joycon2Session.SessionState.Ready)
+                    {
+                        Debug.Log($"[Joycon2] picked {existing.Name} {existing.AddressText} again, reconnecting it now");
+                        Transport.Disconnect(existing.Handle);
+                        existing.refreshConnectAt = now;
+                    }
+                    else Debug.Log($"[Joycon2] {existing.Name} {existing.AddressText} is already connected");
                     return;
                 }
             if (controllers.Count >= MaxControllers) return;
@@ -364,31 +413,47 @@ namespace Joycon2
                 ConnectStartTime = now,
                 rateWindowStart = now,
             };
-            c.Session = new Joycon2Session(new TransportLink(handle), side, SessionOptions)
-            {
-                Log = message => Debug.Log($"[Joycon2] {c.AddressText} {message}"),
-            };
+            c.Session = NewSession(c, side);
             controllers.Add(c);
             return c;
         }
 
+        static Joycon2Session NewSession(Joycon2Controller c, Joycon2Side? side) =>
+            new Joycon2Session(new TransportLink(c.Handle), side, SessionOptions)
+            {
+                Log = message => Debug.Log($"[Joycon2] {c.AddressText} {message}"),
+            };
+
         static void UpdateController(Joycon2Controller c, double now)
         {
+            if (c.refreshConnectAt > 0)
+            {
+                ReconnectWhenDue(c, now);
+                return;
+            }
+
             var session = c.Session;
             session.Update(now);
             c.Side = session.Side; // may be learned during the handshake
 
             if (session.State == Joycon2Session.SessionState.Failed)
             {
-                Drop(c, session.Status, RetryCooldown);
+                if (c.Refreshing) RetryRefresh(c, now, session.Status);
+                else Drop(c, session.Status, RetryCooldown);
                 return;
             }
             if (session.State != Joycon2Session.SessionState.Ready)
             {
-                if (now - c.ConnectStartTime > ConnectTimeout) Drop(c, $"timed out at step {session.Status}", RetryCooldown);
+                if (c.Refreshing && now - c.ConnectStartTime > RefreshAttemptTimeout) RetryRefresh(c, now, $"timed out at step {session.Status}");
+                else if (now - c.ConnectStartTime > ConnectTimeout) Drop(c, $"timed out at step {session.Status}", RetryCooldown);
                 return;
             }
 
+            if (c.Refreshing)
+            {
+                c.refreshUntil = 0;
+                Debug.Log($"[Joycon2] {c.Name} {c.AddressText} reconnected after {now - c.ConnectStartTime:0.0} s");
+            }
             if (c.Device == null) AddDevice(c);
 
             if (now - c.rateWindowStart >= 1.0)
@@ -397,6 +462,74 @@ namespace Joycon2
                 c.rateWindowCount = 0;
                 c.rateWindowStart = now;
             }
+        }
+
+        // ───────────────────────────── Slow link refresh (web) ─────────────────────────────
+
+        static void CheckSlowLinks(double now)
+        {
+            bool anyFast = false;
+            foreach (var c in controllers)
+                if (!c.Refreshing && c.Session.State == Joycon2Session.SessionState.Ready && c.ReportRate >= FastLinkRate)
+                    anyFast = true;
+
+            foreach (var c in controllers)
+            {
+                bool slow = anyFast && !c.Refreshing && c.Session.State == Joycon2Session.SessionState.Ready &&
+                            c.ReportRate > 0 && c.ReportRate < SlowLinkRate;
+                if (!slow)
+                {
+                    c.slowSince = -1;
+                    continue;
+                }
+                if (c.slowSince < 0) c.slowSince = now;
+                else if (now - c.slowSince >= SlowLinkSeconds && c.refreshCount < MaxLinkRefreshes && RefreshSlowLinks)
+                    StartRefresh(c, now);
+            }
+        }
+
+        static void StartRefresh(Joycon2Controller c, double now)
+        {
+            c.refreshCount++;
+            Debug.Log($"[Joycon2] {c.Name} {c.AddressText}: {c.ReportRate:0} Hz while another Joy-Con is fast — " +
+                      $"reconnecting it for a faster link ({c.refreshCount}/{MaxLinkRefreshes})");
+            Transport.Disconnect(c.Handle);
+            c.refreshUntil = now + RefreshTimeout;
+            c.refreshConnectAt = now + RefreshDelay;
+            c.slowSince = -1;
+            c.ReportRate = 0;
+        }
+
+        static void ReconnectWhenDue(Joycon2Controller c, double now)
+        {
+            if (now > c.refreshUntil)
+            {
+                c.refreshUntil = 0;
+                Drop(c, "not back for a faster link — hold SYNC and pick it again", RetryCooldown);
+                return;
+            }
+            if (now < c.refreshConnectAt) return;
+
+            int handle = Transport.Connect(c.Address);
+            if (handle <= 0)
+            {
+                c.refreshConnectAt = now + 1;
+                return;
+            }
+            c.refreshConnectAt = 0;
+            c.Handle = handle;
+            c.ConnectStartTime = now;
+            c.rateWindowCount = 0;
+            c.rateWindowStart = now;
+            c.Session = NewSession(c, c.Side);
+            c.Session.PlayerLed = Joycon2Protocol.PlayerLedPattern(c.PlayerIndex);
+        }
+
+        static void RetryRefresh(Joycon2Controller c, double now, string reason)
+        {
+            Debug.Log($"[Joycon2] {c.Name} {c.AddressText} reconnect: {reason}, retrying (waiting for SYNC on it)");
+            Transport.Disconnect(c.Handle);
+            c.refreshConnectAt = now + 1;
         }
 
         static void AddDevice(Joycon2Controller c)
@@ -512,7 +645,7 @@ namespace Joycon2
             return null;
         }
 
-        internal static string FormatAddress(ulong a) => Transport != null && Transport.RequiresUserGesture ? $"web#{a}" :
+        internal static string FormatAddress(ulong a) => Transport?.LocalAddressPrefix is string prefix ? $"{prefix}#{a}" :
             $"{(a >> 40) & 0xFF:X2}:{(a >> 32) & 0xFF:X2}:{(a >> 24) & 0xFF:X2}:{(a >> 16) & 0xFF:X2}:{(a >> 8) & 0xFF:X2}:{a & 0xFF:X2}";
 
         sealed class TransportLink : IJoycon2Link
