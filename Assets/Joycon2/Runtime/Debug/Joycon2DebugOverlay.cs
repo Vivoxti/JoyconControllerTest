@@ -19,6 +19,9 @@ namespace Joycon2
         double recordingStart;
         GUIStyle style;
         readonly StringBuilder text = new StringBuilder(1024);
+        public bool IsRecording => recording != null;
+        public void ToggleVisible() => visible = !visible;
+        public void ToggleRecording() { if (recording == null) StartRecording(); else StopRecording(); }
 
         void Awake() => visible = Application.isEditor || Debug.isDebugBuild;
 
@@ -37,8 +40,7 @@ namespace Joycon2
             if (keyboard.f9Key.wasPressedThisFrame) visible = !visible;
             if (keyboard.f10Key.wasPressedThisFrame)
             {
-                if (recording == null) StartRecording();
-                else StopRecording();
+                ToggleRecording();
             }
         }
 
@@ -54,6 +56,9 @@ namespace Joycon2
                     richText = false,
                     wordWrap = false,
                 };
+#if UNITY_ANDROID && !UNITY_EDITOR
+                style.fontSize = 18;
+#endif
 #if !UNITY_WEBGL || UNITY_EDITOR
                 // No OS fonts on the web. Only an installed name: a missing one (Consolas on macOS) warns on every draw.
                 var installed = new HashSet<string>(Font.GetOSInstalledFontNames());
@@ -84,7 +89,7 @@ namespace Joycon2
                 if (c.Device != null) text.Append("  device #").Append(c.Device.deviceId).Append("  P").Append(c.PlayerIndex + 1);
                 if (c.Refreshing) text.Append("  RELINKING for a faster link: press SYNC on it");
                 text.Append('\n');
-                text.Append($"  MTU {c.Mtu}  {c.ReportRate,5:0.0} Hz  reports {s.ReportCount}  calib {s.CalibratedFrom}");
+                text.Append($"  MTU {c.Mtu}  {c.ReportRate,5:0.0} Hz  reports {s.ReportCount}  {c.LastReportLength} bytes  calib {s.CalibratedFrom}");
                 if (c.WriteFailures > 0) text.Append("  write failures ").Append(c.WriteFailures);
                 text.Append('\n');
                 if (!s.HasReport) continue;
@@ -115,7 +120,15 @@ namespace Joycon2
 
             var content = new GUIContent(text.ToString());
             var size = style.CalcSize(content);
+#if UNITY_ANDROID && !UNITY_EDITOR
+            var oldMatrix = GUI.matrix;
+            float scale = Mathf.Min(Mathf.Clamp(Screen.width / 1100f, 0.65f, 2f), (Screen.width - 20f) / (size.x + 10f));
+            GUI.matrix = Matrix4x4.Scale(Vector3.one * scale);
+            GUI.Box(new Rect(10, 105f * Mathf.Clamp(Screen.width / 1100f, 0.65f, 2f) / scale, size.x + 10, size.y + 6), content, style);
+            GUI.matrix = oldMatrix;
+#else
             GUI.Box(new Rect(10, 10, size.x + 10, size.y + 6), content, style);
+#endif
         }
 
         void OnRawReport(Joycon2Controller c, byte[] data, int length)

@@ -20,6 +20,7 @@ namespace Joycon2
         /// <summary>Input reports per second, measured over the last second.</summary>
         public float ReportRate { get; internal set; }
         public int WriteFailures { get; internal set; }
+        public int LastReportLength { get; internal set; }
         public double ConnectStartTime { get; internal set; }
         /// <summary>Gyro zero, learned while the controller rests.</summary>
         public Joycon2GyroBias GyroBias { get; } = new Joycon2GyroBias();
@@ -135,7 +136,11 @@ namespace Joycon2
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         static void AutoInitialize()
         {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (AutoStart) Joycon2AndroidLifecycle.EnsureStarted();
+#else
             if (AutoStart) Start();
+#endif
         }
 
 #if UNITY_EDITOR
@@ -260,6 +265,8 @@ namespace Joycon2
             return new Joycon2NativeTransport();
 #elif UNITY_WEBGL
             return new Joycon2WebBluetoothTransport();
+#elif UNITY_ANDROID
+            return new Joycon2AndroidTransport();
 #else
             return new Joycon2NullTransport();
 #endif
@@ -558,6 +565,7 @@ namespace Joycon2
 
         static void OnReport(Joycon2Controller c, int length)
         {
+            c.LastReportLength = length;
             c.rateWindowCount++;
             RawReport?.Invoke(c, payload, length);
 
@@ -664,7 +672,8 @@ namespace Joycon2
         sealed class Joycon2Host : MonoBehaviour
         {
             void OnApplicationQuit() => Stop();
-            void OnDestroy() => Stop();
+            // Destroy is deferred. An old host must not stop a manager restarted in the same frame.
+            void OnDestroy() { if (host == gameObject) Stop(); }
         }
     }
 }

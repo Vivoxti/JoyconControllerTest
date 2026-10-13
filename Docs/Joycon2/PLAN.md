@@ -10,7 +10,7 @@
 >
 > Протокол (UUID, команды, разметка репорта): [PROTOCOL.md](PROTOCOL.md).
 
-Последнее обновление: 2026-10-13 (Фазы 1, A, B, C, D — работают на железе; C — 66 Гц с `joycon2boost.app`; D — частота поднята приватными опциями CoreBluetooth). Unity 6000.3.18f1, Input System 1.19.0.
+Последнее обновление: 2026-10-13 (Фазы 1, A, B, C, D — работают на железе; C — 66 Гц с `joycon2boost.app`; D — частота поднята приватными опциями CoreBluetooth; F — нативный APK работает на Pixel 3 / Android 12, подтверждено пользователем; Гц и длительный прогон ещё не записаны). Unity 6000.3.18f1, Input System 1.19.0.
 
 ---
 
@@ -379,15 +379,37 @@ Docs/Joycon2/      этот план + PROTOCOL.md + заметки по рез�
 - ☐ Тот же `.jslib`. Проверить разрешения «Устройства поблизости»/геолокацию, производительность
   WebGL-билда на телефоне, MTU.
 
-### Фаза F — Android нативно ☐
+### Фаза F — Android нативно ◐ (APK работает на Pixel 3 / Android 12; Гц и длительный прогон — записать)
 
-- ☐ AAR: `BluetoothLeScanner` с `ScanFilter.setManufacturerData(0x0553, …)` → `connectGatt(…,
-  TRANSPORT_LE)` → **`requestMtu(517)` обязательно** (дефолтный MTU 23 обрежет репорт до 20 байт)
-  → `setCharacteristicNotification` + запись CCCD-дескриптора → очередь.
-- ☐ Разрешения: `BLUETOOTH_SCAN` (`neverForLocation`) + `BLUETOOTH_CONNECT` на API 31+,
-  `ACCESS_FINE_LOCATION` на API ≤ 30. Runtime-запрос через `UnityEngine.Android.Permission`.
-- ☐ Строго последовательные GATT-операции (Android не терпит параллельных write/descriptor-операций).
-- ☐ Текущий `AndroidMinSdkVersion: 25` — ок.
+- ☑ Исследование 2026-10-13: публичные Android-реализации, чужие тесты двух Joy-Con на ~67–68 Гц,
+  переиспользование нашего C#-ядра, Android API и путь к Development APK — [ANDROID_RESEARCH.md](ANDROID_RESEARCH.md).
+  Для gamepad внутри Unity Shizuku/root не нужны. Последующий аппаратный результат — TEST_LOG.
+- ☑ AAR: `Native/android/src/com/vivoderin/joycon2/BleTransport.java` (собственный Java, без зависимостей),
+  сборка `Native/android/build.ps1` через Unity OpenJDK/SDK → `Assets/Joycon2/Plugins/Android/joycon2ble.aar`.
+  `BluetoothLeScanner` с `ScanFilter.setManufacturerData(0x0553, …)` → `connectGatt(…,
+  TRANSPORT_LE)` → `requestMtu(517)` и проверка согласованного MTU (не обязан быть 517;
+  для полного ответа нашего factory-read нужен минимум 92) → discovery → `Connected` →
+  `setCharacteristicNotification` + запись CCCD-дескриптора → очередь.
+- ☑ Разрешения в manifest AAR: `BLUETOOTH_SCAN` (`neverForLocation`) + `BLUETOOTH_CONNECT` на API 31+,
+  legacy Bluetooth permissions и `ACCESS_FINE_LOCATION` на API ≤ 30. Runtime-запрос через
+  `UnityEngine.Android.Permission`; запуск менеджера после разрешения и повторный запуск после отказа.
+- ☑ `Joycon2AndroidLifecycle`: запрос разрешений до запуска менеджера, UI отказа/настроек и повторного запроса.
+- ☑ Строго последовательные GATT-операции на handle; один HandlerThread. Timeout закрывает GATT,
+  чтобы поздний callback не завершил следующую запись; callbacks старых GATT отсекаются.
+- ☑ `Joycon2AndroidTransport` + ветка `UNITY_ANDROID` в `CreateTransport`, polling без Unity API в Java callbacks.
+  JNI event frame 32 байта LE + payload, signed bytes сохраняются; 6 тестов границы JNI, всего Joycon2 43/43 passed.
+- ☑ Публичный `CONNECTION_PRIORITY_HIGH` на обоих соединениях, повторный запрос после подключения второго.
+- ☑ Пауза закрывает BLE/устройства, возврат снова запускает скан (нужен SYNC); Bluetooth off обрабатывается в Java;
+  touch-кнопки Connect/retry, Bluetooth/App settings, Details, Record. Реализация готова, ☐ проверить на телефоне.
+- ☑ Меню `Kagefumi → Build Android APK (Joy-Con dev)`: ARM64 IL2CPP Development, landscape,
+  `Builds/Android/Kagefumi-Joycon2-dev.apk`, package `com.vivoderin.kagefumi`.
+- ☑ APK собран: 51,8 MiB, ARM64 IL2CPP Development, min SDK 25 / target 36, 0 ошибок.
+  `Native/android/verify-apk.ps1`: подпись v2, объединённый manifest с BLE-разрешениями,
+  класс транспорта в DEX и native player libraries проверены; результаты — TEST_LOG.
+- ☑ Проверка APK на Pixel 3 / Android 12 (2026-10-13, пользователь: «отлично работает»).
+  Общая работоспособность подтверждена; отдельные измерения Гц/MTU и сценарии стабильности не сообщены.
+- ☐ Development APK: два отдельных игрока, gyro/SUN GRAB, ≥ 60 Гц на каждый, 10 минут, переподключение через SYNC.
+- ☑ Текущий `AndroidMinSdkVersion: 25` — ок; AndroidPlayer/OpenJDK/SDK/NDK установлены.
 
 ### Фаза G — WebGL на iOS/iPadOS через Bluefy ☐
 
@@ -467,6 +489,8 @@ Docs/Joycon2/      этот план + PROTOCOL.md + заметки по рез�
   <https://github.com/TommyWabg/Switch2Connect>, <https://github.com/Logan-Gaillard/Joy2Win>
 - macOS: <https://github.com/loserkidsblink/switch2mac>, <https://github.com/seitanmen/Joycon2forMac>,
   <https://github.com/OZORDI/JoyCon2Mac>
-- Android: <https://github.com/SWeav02/joycon2android>
+- Android: <https://github.com/JoeGeC/joycon2android> (GPL-3.0; upstream для SWeav02),
+  <https://github.com/patrickmerkel26-dev/Joycon-2-Android-Bridge> (MIT, Java, чужой dual-controller тест),
+  [исследование для нашего APK](ANDROID_RESEARCH.md).
 - SDL: в 3.4 есть HIDAPI-драйвер Switch 2 (USB, Pro Controller 2), BLE Joy-Con 2 — только в форках
   (<https://github.com/hifihedgehog/SDL/issues/38>); для нас не вариант.

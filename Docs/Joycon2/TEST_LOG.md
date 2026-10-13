@@ -202,3 +202,45 @@ compare mode (и не depth: принудительный `TEXTURE_COMPARE_MODE`
   после 10 мин без Joy-Con. ☑ `open joycon2boost://start` запускает, второй URL попадает в тот же процесс. ☑ Из игры: B →
   Chrome «Открыть joycon2boost?» → утилита запущена, второй Joy-Con сразу ~66 Гц, первый — после переподключения по подсказке.
 - Скачивание `Joycon2Boost-mac.zip` из игры (вторая B) — ☐ не проверено (утилита уже была зарегистрирована).
+
+## 2026-10-13 · Android APK · сборка и статическая проверка, без телефона/Joy-Con
+
+Целевой телефон, **со слов пользователя**: Pixel 3, Android 12. По `adb devices` устройство не подключено;
+запуск APK, разрешения и реальные BLE-соединения на нём в этой сессии **не проверялись**.
+
+| Проверка | Результат |
+|---|---|
+| Собственный Java BLE-транспорт, `Native/android/build.ps1` | ☑ AAR 18 244 байта, Unity OpenJDK + SDK 36, без сторонних зависимостей/предупреждений javac |
+| Unity Editor 6000.3.18f1, Pipeline CLI; скрипты | ☑ компиляция без ошибок; Android platform-specific код также прошёл IL2CPP |
+| EditMode, фильтр `Joycon2` | ☑ **43/43**: существующее ядро и 6 новых JNI-frame случаев (signed bytes, MAC/RSSI, короткий buffer, повреждённые заголовки/длины) |
+| Android Build Support, переключение WebGL → Android | ☑ target Android, ARM64 IL2CPP, landscape, Development; scene Kagefumi |
+| Первый APK | ☑ сборка 519 с, 0 ошибок; первый прогон компилировал шейдеры и нативный player |
+| Окончательный APK с callback закрытия/permanent denial permission dialog | ☑ сборка 47 с, **0 ошибок**, 2 предупреждения про необязательный runtime Pipeline config и crash debug symbols |
+| `Native/android/verify-apk.ps1` | ☑ APK Signature Scheme v2; один signer; Java `BleTransport` в DEX; ARM64 `libil2cpp.so` / `libunity.so`; BLE permissions в итоговом manifest |
+| Итоговый файл | `Builds/Android/Kagefumi-Joycon2-dev.apk`, **54 330 848 байт (51,8 MiB)** |
+| App id / SDK | `com.vivoderin.kagefumi`, version `0.1.0` / code 1, min SDK 25, target SDK 36; Bluetooth SCAN/CONNECT для Android 12+, legacy/Location ограничены SDK 30 |
+
+SHA256 APK: `b528a22f2ba3e8dabcb5daf70f2051c99d160db4255a87dfb1d475af5c7bd964`.
+Локальные отчёты: `Logs/Android-build-report.json`, `Logs/Joycon2-tests.json`,
+`Builds/Android/verification.txt` (генерируемые файлы, не в Git).
+
+Реализованы permission flow до старта менеджера, отказ/закрытие диалога, App/Bluetooth settings,
+остановка BLE при паузе и скан после возврата, touch Details/Record/Connect-retry, сохранение исходных
+notifications без изменения framing, HIGH priority на обоих соединениях. Всё это пока проверено сборкой;
+поведение на Pixel 3 требует отдельного прогона.
+
+**Дальше на телефоне:** установить APK → разрешить «Устройства поблизости» → SYNC на каждом Joy-Con →
+Details: два отдельных gamepad, калибровка, длина репорта, MTU, Гц обоих → кнопкой на каждом зайти в игру →
+стики/кнопки/LED/гироскоп/SUN GRAB; 10 минут; выключение Bluetooth и Joy-Con; пауза/возврат с повторным SYNC.
+При проблеме — Record/Stop recording и логкат `Unity` / `Joycon2Ble`. Дампы содержат реальные байты:
+сначала сверить их с нашим Win/Mac, затем менять ядро только по данным.
+
+## 2026-10-13 · Pixel 3 · Android 12 · нативный APK — проверка пользователем
+
+После передачи `Kagefumi-Joycon2-dev.apk` пользователь сообщил: **«отлично работает»** и разрешил
+закоммитить/запушить реализацию. Общая работоспособность Android APK с Joy-Con подтверждена пользователем.
+
+Частота каждого контроллера, MTU, прошивки, длительность игры и отдельные результаты для LED,
+гироскопа/SUN GRAB, Bluetooth off/on, паузы/возврата и переподключения не сообщались.
+Эти пункты остаются открытыми; конкретные цифры и прохождение 10-минутного теста из этого сообщения
+не выводим. Собственных логов/дампов с телефона в этой сессии нет.
