@@ -15,6 +15,9 @@ var Joycon2WebBluetooth = {
     requesting: false,
     armedGesture: null,
     running: false,
+    lifecycle: 0,
+    pickerMessage: '',
+    lastError: '',
 
     push: function (type, handle, tag, status, address, bytes) {
       if (type === Jc2.EV_NOTIFICATION) {
@@ -28,6 +31,7 @@ var Joycon2WebBluetooth = {
     },
 
     log: function (level, text) {
+      if (level >= 1) Jc2.lastError = text;
       (level >= 2 ? console.error : level === 1 ? console.warn : console.log)('[Joycon2/web] ' + text);
       Jc2.push(Jc2.EV_LOG, 0, 0, level, 0, new TextEncoder().encode(text));
     },
@@ -65,6 +69,9 @@ var Joycon2WebBluetooth = {
 
     request: function (options, tag) {
       Jc2.requesting = true;
+      Jc2.lastError = '';
+      var lifecycle = Jc2.lifecycle;
+      Jc2.pickerMessage = 'Choose a Joy-Con in the Bluetooth list.';
       var picked;
       try {
         picked = navigator.bluetooth.requestDevice(options);
@@ -72,14 +79,21 @@ var Joycon2WebBluetooth = {
         picked = Promise.reject(err);
       }
       picked.then(function (device) {
+        if (!Jc2.running || Jc2.lifecycle !== lifecycle) return;
         var id = Jc2.idOf(device);
+        Jc2.pickerMessage = 'Joy-Con selected. Connecting…';
         Jc2.push(Jc2.EV_DEVICE_PICKED, 0, tag, 0, id, new TextEncoder().encode(device.name || ''));
       }, function (err) {
-        if (err && err.name === 'SecurityError' && Jc2.armGesture(options, tag)) return;
+        if (!Jc2.running || Jc2.lifecycle !== lifecycle) return;
+        if (err && err.name === 'SecurityError' &&
+            (!navigator.userActivation || !navigator.userActivation.isActive) && Jc2.armGesture(options, tag)) return;
         // NotFoundError = the user closed the chooser (or Bluetooth is off / no adapter: see the message).
         var status = err && err.name === 'NotFoundError' ? 1 : 2;
+        Jc2.pickerMessage = status === 1
+          ? 'No device selected. Check Bluetooth, hold SYNC and try again.'
+          : 'Bluetooth access failed. Check Chrome permissions for nearby devices. ' + Jc2.describe(err);
         Jc2.push(Jc2.EV_DEVICE_PICKED, 0, tag, status, 0, new TextEncoder().encode(Jc2.describe(err)));
-      }).then(function () { Jc2.requesting = false; });
+      }).then(function () { if (Jc2.lifecycle === lifecycle) Jc2.requesting = false; });
     },
 
     // requestDevice needs transient user activation. C# normally calls us within a frame of the click/key,
@@ -91,6 +105,7 @@ var Joycon2WebBluetooth = {
         Jc2.request(options, tag);
       };
       Jc2.armedGesture = fire;
+      Jc2.pickerMessage = 'Tap the game again to open the Bluetooth list.';
       window.addEventListener('pointerup', fire, true);
       window.addEventListener('keyup', fire, true);
       Jc2.log(1, 'the browser wants a fresh click: click the game (or press a key) to open the Bluetooth chooser');
@@ -147,12 +162,20 @@ var Joycon2WebBluetooth = {
       console.warn('[Joycon2] this browser has no Web Bluetooth (use Chrome or Edge); Joy-Con 2 support is off.');
       return -1;
     }
+    var policy = document.permissionsPolicy || document.featurePolicy;
+    if (policy && policy.allowsFeature && !policy.allowsFeature('bluetooth')) {
+      console.warn('[Joycon2] Bluetooth access is blocked by the hosting page Permissions Policy.');
+      return -3;
+    }
     Jc2.running = true;
+    Jc2.lifecycle++;
     return 0;
   },
 
   jc2web_shutdown: function () {
     Jc2.running = false;
+    Jc2.lifecycle++;
+    Jc2.requesting = false;
     Jc2.disarmGesture();
     for (var id in Jc2.devices) {
       var dev = Jc2.devices[id];
@@ -209,7 +232,10 @@ var Joycon2WebBluetooth = {
     dev.live = true;
     var gen = dev.gen;
     dev.device.gatt.connect().then(function () {
-      if (dev.gen !== gen) return;
+      if (dev.gen !== gen) {
+        if (!dev.live && dev.device.gatt.connected) dev.device.gatt.disconnect();
+        return;
+      }
       // Chrome does not expose the ATT MTU; Windows negotiates one large enough for 63-byte reports.
       Jc2.push(Jc2.EV_CONNECTED, id, 0, 0, id, null);
     }, function (err) {

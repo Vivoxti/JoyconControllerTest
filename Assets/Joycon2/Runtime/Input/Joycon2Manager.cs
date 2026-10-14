@@ -96,8 +96,19 @@ namespace Joycon2
         /// </summary>
         public static bool ConnectsOnRequest => Transport != null && Transport.RequiresUserGesture;
         /// <summary>A <see cref="RequestController"/> call would open the chooser now.</summary>
-        public static bool CanRequestController => IsRunning && ConnectsOnRequest && !pickPending &&
+        public static bool CanRequestController => IsRunning && ConnectsOnRequest && !pickPending && !WebPickerBusy &&
                                                    (controllers.Count < MaxControllers || AnyRefreshing);
+        static bool WebPickerBusy
+        {
+            get
+            {
+#if UNITY_WEBGL && !UNITY_EDITOR
+                return Joycon2WebControls.IsPicking;
+#else
+                return false;
+#endif
+            }
+        }
         static bool AnyRefreshing
         {
             get
@@ -140,6 +151,10 @@ namespace Joycon2
             if (AutoStart) Joycon2AndroidLifecycle.EnsureStarted();
 #else
             if (AutoStart) Start();
+#endif
+#if UNITY_WEBGL && !UNITY_EDITOR
+            // Also show browser/HTTPS failures when the transport did not start.
+            Joycon2WebControls.EnsureStarted();
 #endif
         }
 
@@ -242,7 +257,7 @@ namespace Joycon2
         /// and the exact name. Chrome on macOS also lists devices another app already connected (joycon2boost --connect):
         /// it finds them by the services in the filters, and they have no advertisement data to match.
         /// </summary>
-        static string BuildDeviceRequest(Joycon2Side? side)
+        internal static string BuildDeviceRequest(Joycon2Side? side)
         {
             var filters = new StringBuilder();
             void Filter(ushort pid, string name)
@@ -618,7 +633,8 @@ namespace Joycon2
             bool want = controllers.Count < MaxControllers;
             if (ConnectsOnRequest)
             {
-                if (!pickPending) Status = want ? "click / press a key to pick a Joy-Con 2" : "all controllers connected";
+                if (!pickPending) Status = WebPickerBusy ? "Bluetooth chooser open" :
+                    want ? "hold SYNC, then tap Connect L / R (or press J)" : "all controllers connected";
                 return;
             }
             if (want && !IsScanning && now >= scanRetryAt)

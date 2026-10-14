@@ -141,8 +141,11 @@ namespace Kagefumi
         {
             // Called from inside the input update: only record the request, act on it in Update.
             var device = control.device;
-            // Event-based, so a click or tap shorter than a frame still counts (wasPressedThisFrame misses those).
-            if (control == (device as Mouse)?.leftButton || control == (device as Keyboard)?.jKey) joyconPickRequested = true;
+            if (control == (device as Keyboard)?.jKey) joyconPickRequested = true;
+#if !UNITY_WEBGL || UNITY_EDITOR
+            // WebGL uses explicit page buttons: a synthetic mouse event from their tap must not open a second chooser.
+            if (control == (device as Mouse)?.leftButton) joyconPickRequested = true;
+#endif
             if (control == (device as Keyboard)?.bKey) boostRequested = true;
             string scheme = null;
             if (device is Gamepad) scheme = "Gamepad";
@@ -314,7 +317,7 @@ namespace Kagefumi
         }
 
         static string JoyconConnectHint => Joycon2.Joycon2Manager.ConnectsOnRequest
-            ? "\nJoy-Con 2: hold SYNC, then click (or press J) and pick it in the browser list"
+            ? "\nJoy-Con 2: hold SYNC, then tap Connect L / R (or press J) and pick it in the browser list"
             : "";
 
         bool IsAssigned(InputDevice device, string scheme)

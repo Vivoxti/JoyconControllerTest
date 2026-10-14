@@ -23,7 +23,14 @@ namespace Joycon2
         public void ToggleVisible() => visible = !visible;
         public void ToggleRecording() { if (recording == null) StartRecording(); else StopRecording(); }
 
-        void Awake() => visible = Application.isEditor || Debug.isDebugBuild;
+        void Awake()
+        {
+            visible = Application.isEditor || Debug.isDebugBuild;
+#if UNITY_WEBGL && !UNITY_EDITOR
+            // The page has readable, collapsible diagnostics on phones.
+            if (Application.isMobilePlatform) visible = false;
+#endif
+        }
 
         void OnEnable() => Joycon2Manager.RawReport += OnRawReport;
 
@@ -166,6 +173,10 @@ namespace Joycon2
             recording.Dispose();
             recording = null;
             Debug.Log($"[Joycon2] recording saved: {recordingPath}");
+#if UNITY_WEBGL && !UNITY_EDITOR
+            try { Joycon2WebControls.PrepareDownload(Path.GetFileName(recordingPath), File.ReadAllText(recordingPath)); }
+            catch (Exception e) { Debug.LogError($"[Joycon2] cannot export recording: {e.Message}"); }
+#endif
         }
     }
 }

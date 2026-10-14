@@ -19,6 +19,7 @@ namespace Kagefumi.EditorTools
         {
             ("Native/windows/build/Joycon2Boost.exe", "Native/windows/build.ps1"),
             ("Native/macos/build/Joycon2Boost-mac.zip", "Native/macos/build.sh"),
+            ("Builds/Android/Joycon2Boost-test.apk", "Native/android/booster/build.ps1"),
         };
 
         [MenuItem("Kagefumi/Build WebGL (dev, localhost)")]
@@ -43,6 +44,7 @@ namespace Kagefumi.EditorTools
 
             // The loader decompresses by itself, so any static server works (no Content-Encoding headers needed).
             PlayerSettings.WebGL.decompressionFallback = true;
+            PlayerSettings.WebGL.template = "PROJECT:Kagefumi";
 
             var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
             {

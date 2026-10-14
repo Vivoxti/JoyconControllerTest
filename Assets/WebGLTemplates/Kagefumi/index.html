@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>KAGEFUMI · Joy-Con 2</title>
+  <style>
+    html,body{margin:0;height:100%;background:#0b1220;color:#eef2f6;font:16px system-ui,sans-serif;overflow:hidden}
+    #unity-container{position:relative;width:100%;height:100%;height:100dvh}
+    #unity-canvas{width:100%;height:100%;display:block;touch-action:none}
+    #loading{position:absolute;inset:40% 15% auto;text-align:center;pointer-events:none}
+    #progress{display:block;width:100%;margin-top:12px}
+    #warning{position:absolute;top:58px;left:12px;right:12px;color:#ffdca0;background:#16202e;white-space:pre-wrap}
+    #fullscreen{position:absolute;right:max(8px,env(safe-area-inset-right));top:max(8px,env(safe-area-inset-top));padding:10px;min-height:44px;background:#26384c;color:#fff;border:1px solid #789;border-radius:8px;font:inherit}
+    #rotate{display:none;position:absolute;top:10px;left:10px;background:#16202e;padding:8px;border-radius:8px;pointer-events:none}
+    @media(orientation:portrait) and (max-width:700px){#rotate{display:block}}
+  </style>
+</head>
+<body>
+  <div id="unity-container">
+    <canvas id="unity-canvas" tabindex="0"></canvas>
+    <div id="loading">Loading KAGEFUMI…<progress id="progress" max="1" value="0"></progress></div>
+    <div id="warning" role="alert"></div>
+    <div id="rotate">Rotate your phone for two-player play</div>
+    <button id="fullscreen" type="button">Fullscreen</button>
+  </div>
+  <script>
+    var container = document.getElementById('unity-container');
+    var canvas = document.getElementById('unity-canvas');
+    var warning = document.getElementById('warning');
+    var config = {
+      dataUrl: 'Build/{{{ DATA_FILENAME }}}',
+      frameworkUrl: 'Build/{{{ FRAMEWORK_FILENAME }}}',
+      codeUrl: 'Build/{{{ CODE_FILENAME }}}',
+      streamingAssetsUrl: 'StreamingAssets',
+      companyName: {{{ JSON.stringify(COMPANY_NAME) }}},
+      productName: {{{ JSON.stringify(PRODUCT_NAME) }}},
+      productVersion: {{{ JSON.stringify(PRODUCT_VERSION) }}},
+      devicePixelRatio: /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ? 1 : Math.min(window.devicePixelRatio || 1, 2),
+      showBanner: function (message, type) {
+        if (type === 'error') warning.textContent = message;
+        else console.warn(message);
+      }
+    };
+    var loader = document.createElement('script');
+    loader.src = 'Build/{{{ LOADER_FILENAME }}}';
+    loader.onerror = function () { warning.textContent = 'Game files could not load. Check the connection and reload.'; };
+    loader.onload = function () {
+      createUnityInstance(canvas, config, function (progress) {
+        document.getElementById('progress').value = progress;
+      }).then(function (instance) {
+        document.getElementById('loading').remove();
+        canvas.focus();
+        document.getElementById('fullscreen').onclick = function () {
+          if (container.requestFullscreen) container.requestFullscreen().catch(function (error) { warning.textContent = error.message; });
+        };
+        if (!container.requestFullscreen) document.getElementById('fullscreen').hidden = true;
+      }).catch(function (error) { warning.textContent = String(error); });
+    };
+    document.body.appendChild(loader);
+  </script>
+</body>
+</html>

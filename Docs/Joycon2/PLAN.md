@@ -10,7 +10,7 @@
 >
 > Протокол (UUID, команды, разметка репорта): [PROTOCOL.md](PROTOCOL.md).
 
-Последнее обновление: 2026-10-13 (Фазы 1, A, B, C, D — работают на железе; C — 66 Гц с `joycon2boost.app`; D — частота поднята приватными опциями CoreBluetooth; F — нативный APK работает на Pixel 3 / Android 12, подтверждено пользователем; Гц и длительный прогон ещё не записаны). Unity 6000.3.18f1, Input System 1.19.0.
+Последнее обновление: 2026-10-14 (Фазы 1, A, B, C, D — работают на железе; C — 66 Гц с `joycon2boost.app`; D — частота поднята приватными опциями CoreBluetooth; E — два Joy-Con в Android Chrome работают на 60+ Гц, запуск помощника через Boost и возврат в Chrome подтверждены; F — нативный APK работает на Pixel 3 / Android 12, подтверждено пользователем; его Гц и длительный прогон ещё не записаны). Unity 6000.3.18f1, Input System 1.19.0.
 
 ---
 
@@ -288,8 +288,9 @@ Docs/Joycon2/      этот план + PROTOCOL.md + заметки по рез�
   запрошенному фильтру, по имени `Joy-Con 2 (L/R)` или — если Chrome имени не знает («Unknown or
   unsupported device», так было на Windows) — из info-блока Joy-Con (PID по `0x13014`, шаг `ReadInfo` сессии). `CanRequestController`, `ConnectsOnRequest`.
   Адреса в вебе — локальные id страницы (`web#1`), в логах и оверлее.
-- ☑ **User gesture.** Kagefumi (лобби/пауза/конец матча): **клик мышью или J** → `RequestController()`
-  в том же кадре — это внутри окна transient activation Chrome. Если браузер всё же откажет (нет активации),
+- ☑ **User gesture.** DOM-кнопки **Connect L / R** вызывают chooser прямо из клика/тача;
+  **J** → `RequestController()` в кадре ввода (лобби/пауза/конец матча). Глобальный mouse-picker
+  заменён явными кнопками в Фазе E. Если браузер откажет из-за отсутствия активации,
   `.jslib` сам ждёт следующего `pointerup`/`keyup` и открывает chooser прямо из DOM-обработчика.
   Кнопки геймпада жестом **не считаются** — подключать Joy-Con кнопкой Joy-Con нельзя.
 - ☑ Каждый Joy-Con — отдельный chooser (один `requestDevice` = одно устройство), лимит — `MaxControllers` (2).
@@ -374,10 +375,60 @@ Docs/Joycon2/      этот план + PROTOCOL.md + заметки по рез�
   короче?), `JC2_MAC_DESIRED_LATENCY=0` (SPI `setDesiredConnectionLatency`). Если не поможет — запись `85 00` в
   дескриптор `679d5510…` (нужен новый вызов транспорта `write descriptor`; PROTOCOL.md).
 
-### Фаза E — WebGL на Android (Chrome) ☐
+### Фаза E — WebGL на Android (Chrome) ◐ (два Joy-Con: 60+ Гц; запуск через Boost проверен; длительный прогон открыт)
 
-- ☐ Тот же `.jslib`. Проверить разрешения «Устройства поблизости»/геолокацию, производительность
-  WebGL-билда на телефоне, MTU.
+- ☑ Исследование 2026-10-13: [ANDROID_WEB_RESEARCH.md](ANDROID_WEB_RESEARCH.md).
+  Chrome Android поддерживает BLE GATT и Unity 6000.3 Web; используем существующий `.jslib`
+  и C#-ядро. Chromium запрашивает MTU 517, но в проверенном пути не запрашивает HIGH priority,
+  как наш APK. На этапе исследования частота ≥ 60 Гц ещё не была подтверждена;
+  аппаратный результат с помощником записан ниже.
+- ☑ `Joycon2WebControls.cs` + отдельный `Joycon2WebControls.jslib`: DOM-кнопки Connect L/R,
+  `requestDevice` прямо внутри тапа по подготовленным C#-фильтрам. Результаты идут через прежнюю
+  очередь; handshake остаётся в C#. J сохраняется, глобальный mouse-picker в WebGL убран,
+  чтобы synthetic mouse от кнопки не открывал второй chooser.
+- ☑ Details: Гц/длина/gyro отдельно L/R и FPS; Record → Stop → Download recording (TSV через Blob).
+  UI создаётся даже при отказе транспорта: сообщения HTTPS, неподдерживаемого браузера,
+  iframe policy, отмены, разрешений и ошибок подключения.
+- ☑ Уход страницы в фон закрывает ссылки с событиями Disconnected; chooser/permission dialog
+  не прерывается. Поздние результаты chooser после shutdown и завершение отменённого connect
+  отсекаются. Возврат: SYNC + Connect L/R. ☐ Проверить на Android.
+- ☑ Шаблон `PROJECT:Kagefumi`: адаптивный canvas, DPR 1 на Android, fullscreen вместе с кнопками,
+  landscape-подсказка. Мобильная диагностика в DOM заменяет автоматически открытый F9-оверлей.
+- ☑ 8 Node-тестов без BLE: прямой жест, независимые L/R, отмена/отказ/retry, HTTPS/browser/policy,
+  устаревший chooser, фон/поздний connect и запись/Blob cleanup.
+  Запуск/размещение: [Native/web/README.md](../../Native/web/README.md).
+- ☑ 2026-10-14: финальный Development WebGL собран (112 MiB, повторная сборка 75 с,
+  0 ошибок), `Builds/WebGL`, архив `Builds/Kagefumi-WebGL-Android-test.zip` (29 MiB).
+  Smoke-тест во встроенном Chromium: игра, Connect L → chooser, Record/Stop/Download TSV,
+  FPS, размеры 844×390 / 390×844; без телефона и Joy-Con. Подробности — TEST_LOG.
+- ☐ На Pixel 3 / Android 12 сначала демо mascii, затем наш Development WebGL в актуальном Chrome.
+  HTTPS (HTTP по LAN-IP не подходит) или телефонный localhost через USB `adb reverse`;
+  разрешения получает Chrome. Проверить два отдельных игрока, полные notifications/IMU,
+  Гц L/R, FPS, 10 минут, reload, фон/возврат и переподключение; записать в TEST_LOG.
+- ☑ 2026-10-14: Pixel 3 подключён по USB, Android 12, Chrome 154.0.8037.92;
+  `adb reverse tcp:8765 tcp:8765` настроен, локальный сервер доступен на ПК.
+  На телефоне открыть `http://localhost:8765/` вручную; загрузка игры и Joy-Con ещё не подтверждены.
+- ☑ Пользователь подтвердил: веб-игра на телефоне работает с двумя Joy-Con, но оба ~20 Гц;
+  Game FPS ~50–60 или выше. BLE-интервал не измерен, 10-минутная стабильность не проверена.
+- ☑ Подготовлен и установлен на Pixel 3 тестовый Android-помощник
+  [Native/android/booster](../../Native/android/booster/README.md): отдельный foreground service
+  присоединяется к уже созданным Chrome GATT-соединениям и просит публичный HIGH на обоих.
+  Без скана, SMP, Nintendo-команд и hidden API; input остаётся в браузере.
+  APK 16 727 байт, Java/DEX/manifest и подпись v2/v3 проверены. ☑ Гц подтверждены ниже.
+- ☑ Помощник v0.2: безымянные устройства Android выбираются по явно заданным адресам.
+  На железе оба HIGH accepted; `BluetoothGatt.onConnectionUpdated` на helper и Chrome:
+  interval=12 × 1.25 мс = **15 мс**, latency=0, status=0 для обоих.
+  Пользователь подтвердил **«теперь 60+ все супер»**. Длительный прогон ещё открыт.
+- ☑ v0.3 реализует запуск кнопкой **Boost** в Android-вебе через `intent://`:
+  первая установка APK (fallback / Install boost helper), Nearby devices один раз,
+  далее запуск службы и автоматический возврат в Chrome. Сервисный UUID приходит из
+  C#-фильтров; native helper проверяет GATT service перед HIGH у безымянных устройств,
+  ручные MAC не нужны. Короткий переход до 2 с сохраняет browser gamepads.
+  10 Node-тестов passed; APK собран и обновлён на телефоне; WebGL пересобран за 65 с,
+  0 ошибок, APK лежит рядом с index.html и включён в zip.
+  ☑ На Pixel 3 оба устройства прошли проверку сервиса в helper; пользователь подтвердил
+  полный путь Boost → автоматический запуск → возврат в Chrome → Connect L/R и 60+ Гц:
+  «все отработало нормально». ☐ SUN GRAB и 10-минутный прогон отдельно не проверены.
 
 ### Фаза F — Android нативно ◐ (APK работает на Pixel 3 / Android 12; Гц и длительный прогон — записать)
 
