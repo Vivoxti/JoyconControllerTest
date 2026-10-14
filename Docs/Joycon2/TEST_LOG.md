@@ -3,6 +3,21 @@
 Формат: дата · платформа/ОС · адаптер · что проверяли · результат. Для проверок с Joy-Con —
 версия прошивки (если известна), частота (Гц из оверлея F9), обрывы, ссылки на дампы.
 
+## 2026-10-14 · iPhone 13 mini / iOS 18.7.7 / Bluefy · WebGL (Фаза G): Joy-Con 2 работают, ~30 Гц
+
+Сборка: `Kagefumi → Build WebGL (dev, localhost)` (Development, 111 МБ, wasm 102 МБ, 102 с) → `node Native/web/serve.cjs 8765`
+→ HTTPS через `cloudflared tunnel --url http://localhost:8765` (quick tunnel trycloudflare.com; у iOS нет аналога
+`adb reverse`, а Bluefy требует HTTPS). Браузер — Bluefy из App Store.
+
+| Шаг | Результат |
+|---|---|
+| Загрузка dev-билда в WKWebView | грузится и играется: лимит памяти на 13 mini не помешал |
+| Подключение / handshake | пользователь: **«работает»** — запись (`writeValueWithoutResponse` или откат на `writeValue`) и уведомления в Bluefy действуют |
+| Частота | **~30 Гц** (Details). Ожидаемо: дефолтный интервал iOS 30 мс, Bluefy приватных опций низкой задержки не использует; из веба не повлиять |
+
+Не сообщалось отдельно: каким фильтром нашёлся контроллер (по имени или через «все устройства»), LED P1/P2, гироскоп/SUN GRAB,
+10 минут, срабатывание сторожа тишины при обрыве.
+
 ## 2026-10-14 · iPhone 13 mini / iOS 18.7.7 · нативный iOS (CoreBluetooth): два Joy-Con 2, 60+ Гц
 
 Сборка: `Native/ios/build.sh` (тот же `Native/macos/src/joycon2ble.m` → `libJoycon2Ble.a`, arm64) →

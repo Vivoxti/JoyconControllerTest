@@ -13,6 +13,7 @@ var Joycon2WebBluetooth = {
     devices: {},       // id -> state; the id doubles as address and connection handle
     nextId: 1,
     requesting: false,
+    showAllDevices: false, // Bluefy: the name filter found nothing once, list every device instead
     armedGesture: null,
     running: false,
     lifecycle: 0,
@@ -40,9 +41,23 @@ var Joycon2WebBluetooth = {
       return err ? (err.name ? err.name + ': ' : '') + (err.message || String(err)) : 'unknown error';
     },
 
+    // iOS/iPadOS: Safari and every other iOS browser are WebKit without Web Bluetooth; Bluefy (WKWebView + its own
+    // CoreBluetooth bridge) is the one that works. iPadOS reports a Mac platform, so also look at touch points.
+    isIOS: function () {
+      return /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    },
+    isBluefy: function () { return /Bluefy/.test(navigator.userAgent); },
+
     // Web Bluetooth wants BufferSource values; JSON from C# has plain arrays.
     toRequestOptions: function (json) {
       var options = JSON.parse(json);
+      // Bluefy ignores manufacturerData filters and matches services against the advertisement (Joy-Con 2 does not
+      // advertise its service), so keep only the exact names (as the reference demo does for Bluefy).
+      if (Jc2.isBluefy()) {
+        options.filters = (options.filters || []).filter(function (f) { return f.name; })
+          .map(function (f) { return { name: f.name }; });
+      }
       (options.filters || []).forEach(function (filter) {
         (filter.manufacturerData || []).forEach(function (m) {
           if (m.dataPrefix) m.dataPrefix = new Uint8Array(m.dataPrefix);
@@ -68,6 +83,9 @@ var Joycon2WebBluetooth = {
     },
 
     request: function (options, tag) {
+      // Joy-Con 2 advertise no name: iOS knows it only after a connection, otherwise Bluefy lists "DeviceName".
+      // The side then comes from the button (tag) or the controller's info block, not from the name.
+      if (Jc2.showAllDevices && Jc2.isBluefy()) options = { acceptAllDevices: true, optionalServices: options.optionalServices };
       Jc2.requesting = true;
       Jc2.lastError = '';
       var lifecycle = Jc2.lifecycle;
@@ -88,10 +106,15 @@ var Joycon2WebBluetooth = {
         if (err && err.name === 'SecurityError' &&
             (!navigator.userActivation || !navigator.userActivation.isActive) && Jc2.armGesture(options, tag)) return;
         // NotFoundError = the user closed the chooser (or Bluetooth is off / no adapter: see the message).
-        var status = err && err.name === 'NotFoundError' ? 1 : 2;
-        Jc2.pickerMessage = status === 1
-          ? 'No device selected. Check Bluetooth, hold SYNC and try again.'
-          : 'Bluetooth access failed. Check Chrome permissions for nearby devices. ' + Jc2.describe(err);
+        // Bluefy rejects a cancelled chooser with the number 2 instead of a DOMException.
+        var status = err && err.name === 'NotFoundError' || err === 2 ? 1 : 2;
+        var listAll = status === 1 && Jc2.isBluefy() && !Jc2.showAllDevices;
+        if (listAll) Jc2.showAllDevices = true;
+        Jc2.pickerMessage = listAll
+          ? 'Joy-Con not listed? Hold SYNC and tap Connect again: the list will show all Bluetooth devices (a Joy-Con may appear as "DeviceName").'
+          : status === 1 ? 'No device selected. Check Bluetooth, hold SYNC and try again.'
+          : 'Bluetooth access failed. ' + (Jc2.isIOS() ? 'Allow Bluetooth for Bluefy in iOS Settings. '
+            : 'Check Chrome permissions for nearby devices. ') + Jc2.describe(err);
         Jc2.push(Jc2.EV_DEVICE_PICKED, 0, tag, status, 0, new TextEncoder().encode(Jc2.describe(err)));
       }).then(function () { if (Jc2.lifecycle === lifecycle) Jc2.requesting = false; });
     },
@@ -159,7 +182,7 @@ var Joycon2WebBluetooth = {
       return -2;
     }
     if (!navigator.bluetooth || !navigator.bluetooth.requestDevice) {
-      console.warn('[Joycon2] this browser has no Web Bluetooth (use Chrome or Edge); Joy-Con 2 support is off.');
+      console.warn('[Joycon2] this browser has no Web Bluetooth (use Chrome or Edge; Bluefy on iOS); Joy-Con 2 support is off.');
       return -1;
     }
     var policy = document.permissionsPolicy || document.featurePolicy;
@@ -268,7 +291,9 @@ var Joycon2WebBluetooth = {
         if (!dev.listeners[key]) {
           var listener = function (ev) {
             if (dev.gen !== gen) return;
-            var v = ev.target.value;
+            var v = (ev && ev.target && ev.target.value) || c.value; // Bluefy: no guarantee the event target is c
+            if (!v) return;
+            if (v instanceof ArrayBuffer) v = new DataView(v);
             Jc2.push(Jc2.EV_NOTIFICATION, handle, tag, 0, handle, new Uint8Array(v.buffer, v.byteOffset, v.byteLength).slice());
           };
           dev.listeners[key] = listener;
@@ -287,6 +312,7 @@ var Joycon2WebBluetooth = {
 
   // Not transport: helpers for the rate booster (Joycon2RateBooster.cs). 1 = Windows, 2 = macOS, 0 = other.
   jc2web_os: function () {
+    if (Jc2.isIOS()) return 0; // the iPhone UA says "like Mac OS X"; no helper exists for iOS
     var platform = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
     if (/^win/i.test(platform) || /Windows NT/.test(navigator.userAgent)) return 1;
     if (/^mac/i.test(platform) || /Mac OS X/.test(navigator.userAgent)) return 2;

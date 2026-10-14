@@ -16,7 +16,7 @@ class Element {
   click() { if (!this.disabled) this.dispatch('click'); }
   dispatch(type) { for (const fn of this.listeners[type] || []) fn({ target: this }); }
 }
-function setup({ secure = true, bluetooth = true, policy = true, android = false } = {}) {
+function setup({ secure = true, bluetooth = true, policy = true, android = false, userAgent } = {}) {
   const document = new Element('document');
   document.body = new Element('body');
   document.hidden = false;
@@ -34,14 +34,16 @@ function setup({ secure = true, bluetooth = true, policy = true, android = false
     if (tag === 'a') element.addEventListener('click', () => clickedLinks.push(element.href));
     return element;
   };
-  const navigator = { userActivation: { isActive: true }, userAgent: android ? 'Chrome Android' : 'Chrome Windows' };
+  const navigator = { userActivation: { isActive: true }, platform: '', maxTouchPoints: 0,
+    userAgent: userAgent || (android ? 'Chrome Android' : 'Chrome Windows') };
   if (bluetooth) navigator.bluetooth = {
     requestDevice(options) {
       calls.push({ options, inGesture });
       return new Promise((resolve, reject) => { resolvePicker = resolve; rejectPicker = reject; });
     }
   };
-  const context = vm.createContext({ document, window, navigator, TextEncoder, Uint8Array,
+  const location = { href: 'https://test.example/game/index.html' };
+  const context = vm.createContext({ document, window, navigator, location, TextEncoder, Uint8Array, DataView, ArrayBuffer,
     console: { log() {}, warn() {}, error() {} }, setTimeout, Blob,
     URL: class extends URL { static createObjectURL() { return 'blob:test-' + Math.random(); } static revokeObjectURL(url) { revoked.push(url); } },
     UTF8ToString: value => value, LibraryManager: { library: {} }, autoAddDeps() {},
@@ -55,8 +57,8 @@ function setup({ secure = true, bluetooth = true, policy = true, android = false
   context._jc2web_disconnect = lib.jc2web_disconnect;
   lib.jc2web_init();
   const options = side => JSON.stringify({ filters: [{ manufacturerData: [{ companyIdentifier: 1363,
-    dataPrefix: [0, 0, 0, 0, 0, side === 'L' ? 103 : 102, 32], mask: [0, 0, 0, 0, 0, 255, 255] }] }],
-    optionalServices: ['test-service'] });
+    dataPrefix: [0, 0, 0, 0, 0, side === 'L' ? 103 : 102, 32], mask: [0, 0, 0, 0, 0, 255, 255] }] },
+    { services: ['test-service'], name: 'Joy-Con 2 (' + side + ')' }], optionalServices: ['test-service'] });
   lib.jc2web_ui_init(options('L'), options('R'));
   const update = () => lib.jc2web_ui_update(1, 1, 'running', 'details', 0);
   update();
@@ -67,7 +69,7 @@ function setup({ secure = true, bluetooth = true, policy = true, android = false
       disconnect: () => { d.gatt.connected = false; d.dispatch('gattserverdisconnected'); } };
     return d;
   };
-  return { context, lib, ui: context.Jc2UI, pipe: context.Jc2, document, calls, revoked, clickedLinks, tap, update, device,
+  return { context, location, lib, ui: context.Jc2UI, pipe: context.Jc2, document, calls, revoked, clickedLinks, tap, update, device,
     pick: d => resolvePicker(d), cancel: error => rejectPicker(error) };
 }
 
@@ -200,4 +202,36 @@ test('a long boost permission/install hop closes links on return; desktop does n
   s.document.hidden = false; s.document.dispatch('visibilitychange');
   assert.equal(s.pipe.devices[id].live, false);
   assert.equal(s.pipe.events.at(-1).type, 5);
+});
+
+const iPhoneSafari = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.7 Mobile/15E148 Safari/604.1';
+const iPhoneBluefy = iPhoneSafari + ' Bluefy/3.9.3';
+
+test('Bluefy: chooser filters by exact name only, keeps optionalServices; a numeric cancel counts as cancel', async () => {
+  const s = setup({ userAgent: iPhoneBluefy });
+  s.tap(s.ui.left);
+  assert.deepEqual(JSON.parse(JSON.stringify(s.calls[0].options)),
+    { filters: [{ name: 'Joy-Con 2 (L)' }], optionalServices: ['test-service'] });
+  s.cancel(2); await flush(); s.update();
+  assert.equal(s.pipe.events.at(-1).status, 1);
+  assert.match(s.ui.message.textContent, /all Bluetooth devices/);
+  s.tap(s.ui.right);
+  assert.deepEqual(JSON.parse(JSON.stringify(s.calls[1].options)), { acceptAllDevices: true, optionalServices: ['test-service'] });
+  s.cancel(2); await flush(); s.update();
+  assert.match(s.ui.message.textContent, /try again/);
+  assert.equal(setup().pipe.toRequestOptions(JSON.stringify({ filters: [{ manufacturerData: [] }, { name: 'x' }] })).filters.length, 2);
+});
+
+test('iOS without Web Bluetooth offers Bluefy; the iPhone UA is not macOS for the rate helper', () => {
+  const s = setup({ userAgent: iPhoneSafari, bluetooth: false });
+  assert.match(s.ui.message.textContent, /Bluefy/);
+  const open = s.ui.root.children[1].children.find(b => b.textContent === 'Open in Bluefy');
+  open.click();
+  assert.equal(s.location.href, 'bluefy://open?url=' + encodeURIComponent('https://test.example/game/index.html'));
+  assert.equal(setup({ userAgent: iPhoneBluefy }).lib.jc2web_os(), 0);
+  const iPad = setup({ userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Bluefy/3.9.3' });
+  iPad.context.navigator.platform = 'MacIntel'; iPad.context.navigator.maxTouchPoints = 5;
+  assert.equal(iPad.lib.jc2web_os(), 0);
+  assert.equal(setup({ userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/141' }).lib.jc2web_os(), 2);
+  assert.equal(setup().ui.root.children[1].children.some(b => b.textContent === 'Open in Bluefy'), false);
 });

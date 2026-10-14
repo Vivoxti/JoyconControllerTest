@@ -49,3 +49,20 @@ Pixel 3 / Android 12: two Joy-Con in Chrome were ~20 Hz without the helper and
 flow and service matching were also confirmed on this phone, with 60+ Hz retained.
 SUN GRAB and ten-minute stability still need separate phone checks.
 Record results in `Docs/Joycon2/TEST_LOG.md`.
+
+## iPhone / iPad (Bluefy)
+
+Safari and every other iOS browser are WebKit without Web Bluetooth; use the free
+**Bluefy** browser (in Safari the game offers **Open in Bluefy** / **Get Bluefy**).
+Bluefy needs HTTPS and iOS has no `adb reverse`, so for a local build use a tunnel:
+
+```bash
+node Native/web/serve.cjs 8765
+cloudflared tunnel --url http://localhost:8765
+```
+
+Open the printed `https://….trycloudflare.com` address in Bluefy. Hold SYNC, tap
+**Connect L** / **Connect R**. Joy-Con 2 advertise no name, so the list may be empty
+or show "DeviceName": close it and tap Connect again to list all Bluetooth devices.
+Expect ~30 Hz per controller (iOS default 30 ms interval; the web cannot change it).
+The native iOS build reaches 60+ Hz. iPhone 13 mini / iOS 18.7.7: works, ~30 Hz.

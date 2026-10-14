@@ -10,7 +10,7 @@
 >
 > Протокол (UUID, команды, разметка репорта): [PROTOCOL.md](PROTOCOL.md).
 
-Последнее обновление: 2026-10-14 (Фазы 1, A, B, C, D — работают на железе; C — 66 Гц с `joycon2boost.app`; D — частота поднята приватными опциями CoreBluetooth; E — два Joy-Con в Android Chrome работают на 60+ Гц, запуск помощника через Boost и возврат в Chrome подтверждены; F — нативный APK работает на Pixel 3 / Android 12, подтверждено пользователем; его Гц и длительный прогон ещё не записаны; H — нативный iOS: два Joy-Con на iPhone 13 mini, 60+ Гц). Unity 6000.3.18f1, Input System 1.19.0.
+Последнее обновление: 2026-10-14 (Фазы 1, A, B, C, D — работают на железе; C — 66 Гц с `joycon2boost.app`; D — частота поднята приватными опциями CoreBluetooth; E — два Joy-Con в Android Chrome работают на 60+ Гц, запуск помощника через Boost и возврат в Chrome подтверждены; F — нативный APK работает на Pixel 3 / Android 12, подтверждено пользователем; его Гц и длительный прогон ещё не записаны; H — нативный iOS: два Joy-Con на iPhone 13 mini, 60+ Гц; G — WebGL в Bluefy на iPhone работает, ~30 Гц). Unity 6000.3.18f1, Input System 1.19.0.
 
 ---
 
@@ -463,14 +463,34 @@ Docs/Joycon2/      этот план + PROTOCOL.md + заметки по рез�
 - ☐ Development APK: два отдельных игрока, gyro/SUN GRAB, ≥ 60 Гц на каждый, 10 минут, переподключение через SYNC.
 - ☑ Текущий `AndroidMinSdkVersion: 25` — ок; AndroidPlayer/OpenJDK/SDK/NDK установлены.
 
-### Фаза G — WebGL на iOS/iPadOS через Bluefy ☐
+### Фаза G — WebGL на iOS/iPadOS через Bluefy ◐ (Joy-Con 2 работают в Bluefy на iPhone 13 mini, ~30 Гц)
 
-- ☐ Safari не поддерживает Web Bluetooth → только браузер **Bluefy** (WKWebView с Web BLE).
-- ☐ Bluefy не понимает фильтр `manufacturerData` → фильтр по имени `Joy-Con 2 (L)` / `Joy-Con 2 (R)`
-  (ветка в `.jslib` по `navigator.userAgent.includes("Bluefy")`).
-- ☐ Проверить, тянет ли WKWebView наш Unity WebGL-билд по памяти (особенно iPhone). При необходимости —
-  облегчённый билд (сжатие текстур, без пост-процесса).
-- ☐ В Safari показывать ссылку `bluefy://open?url=…`.
+Ресёрч (2026-10-14): в Safari Web Bluetooth нет и не будет (WebKit «oppose», standards-positions #570); все браузеры
+iOS — WebKit, Blink/Gecko по DMA в ЕС не вышли. iOS не поддерживает Joy-Con 2 в GameController → путь через Gamepad API
+закрыт. Работают только WKWebView-браузеры со своим мостом в CoreBluetooth: **Bluefy** (бесплатный, PNN SOFT) и
+WebBLE ($1.99, открытый код, `manufacturerData` не умеет). Единственное публичное подтверждение Joy-Con 2 + Bluefy на
+iPhone — демо mascii (Zenn, 2025-07), запись в контроллер там в Bluefy явно не подтверждена.
+
+- ☑ Safari не поддерживает Web Bluetooth → только **Bluefy**. В Safari на iOS: кнопки «Open in Bluefy»
+  (`bluefy://open?url=…`, формат из демо mascii) и «Get Bluefy» (App Store `id1492822055`).
+- ☑ Bluefy не понимает фильтр `manufacturerData` (и `services` сверяет с рекламой, а Joy-Con 2 сервис не рекламирует) →
+  в `.jslib` для `navigator.userAgent` с `Bluefy` фильтры сводятся к `{name: "Joy-Con 2 (L|R)"}` + `optionalServices`.
+- ☑ Имени в рекламе нет: iOS знает его только после подключения, иначе Bluefy показывает «DeviceName». После первой
+  отмены пустого списка следующий Connect в Bluefy открывает `acceptAllDevices` (сторона — по кнопке L/R).
+- ☑ Отмена выбора в Bluefy — reject числом `2`, а не `NotFoundError`: считается отменой.
+- ☑ Значение уведомления: `ev.target.value` или `characteristic.value`; запись — `writeValueWithoutResponse` с откатом
+  на `writeValue` (было).
+- ☑ `jc2web_os()`: UA iPhone содержит «like Mac OS X» — iOS/iPadOS теперь не считаются macOS (не предлагать
+  `joycon2boost.app`).
+- ☑ Сторож тишины (только веб): готовый Joy-Con без репортов > `ReportSilenceTimeout` (3 с) → Drop; Bluefy не всегда
+  шлёт `gattserverdisconnected`.
+- ☑ Node-тесты: `web-controls.test.cjs` 12/12 (+2 на Bluefy/iOS).
+- ☑ **Железо (2026-10-14, TEST_LOG):** Bluefy на iPhone 13 mini / iOS 18.7.7 — пользователь: «работает, на 30 Гц».
+  Handshake с записью проходит; dev-билд (wasm 102 МБ) грузится. HTTPS для теста — `cloudflared tunnel --url
+  http://localhost:8765` поверх `Native/web/serve.cjs`.
+- ☑ Частота ~30 Гц — потолок веба на iOS: дефолтный интервал iOS 30 мс, приватные опции (как в Фазе H) Bluefy не
+  использует. Для 60+ Гц на iPhone — нативный билд (Фаза H).
+- ☐ LED P1/P2, гироскоп/SUN GRAB, 10 минут, обрыв (сторож тишины), iPad.
 
 ### Фаза H — iOS нативно ◐ (два Joy-Con на iPhone 13 mini / iOS 18.7.7, 60+ Гц; длительный прогон открыт)
 
@@ -524,6 +544,7 @@ Docs/Joycon2/      этот план + PROTOCOL.md + заметки по рез�
 | macOS: тихий обрыв ~15 c | Отваливается контроллер | Keep-alive 1 Гц в общем ядре |
 | macOS Editor: TCC-разрешение Bluetooth | Ничего не находит в Editor | Инструкция; проверка `CBManagerAuthorization` и вывод в лог |
 | iOS: только Bluefy, лимиты памяти WKWebView | Билд не грузится | Облегчённый WebGL-билд; это P4 |
+| iOS/Bluefy: интервал 30 мс | ~33 Гц, дёрганый SUN GRAB | Из веба не повлиять; нативный iOS (Фаза H) — 60+ Гц |
 | Переподключение без SYNC (app-level bonding, команда `0x15`) | Каждый запуск — жать SYNC | Не нужно для MVP; изучить после Фазы D. В вебе невозможно |
 | Лицензии референсных репо (часть без лицензии) | Нельзя копировать код | Пишем свою реализацию по описанию протокола; код берём только из MIT-проектов с атрибуцией |
 | Режим «пара L+R = один геймпад» | — | Вне скоупа, легко добавить в C#-слое |

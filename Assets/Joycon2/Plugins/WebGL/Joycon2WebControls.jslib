@@ -6,7 +6,9 @@ var Joycon2WebControls = {
     feedback: function (message) { if (Jc2UI.message) Jc2UI.message.textContent = message; },
     supportError: function () {
       if (!window.isSecureContext) return 'Open the game over HTTPS. An HTTP address on your Wi-Fi network cannot access Bluetooth.';
-      if (!navigator.bluetooth || !navigator.bluetooth.requestDevice) return 'This browser cannot connect Joy-Con 2. Open this page in Chrome on Android.';
+      if (!navigator.bluetooth || !navigator.bluetooth.requestDevice) return Jc2.isIOS()
+        ? 'Safari and other iOS browsers cannot connect Joy-Con 2. Tap Open in Bluefy (free Web Bluetooth browser from the App Store).'
+        : 'This browser cannot connect Joy-Con 2. Open this page in Chrome.';
       var policy = document.permissionsPolicy || document.featurePolicy;
       if (policy && policy.allowsFeature && !policy.allowsFeature('bluetooth'))
         return 'Bluetooth access is blocked by the hosting page. Open the game directly in Chrome.';
@@ -36,6 +38,7 @@ var Joycon2WebControls = {
     var left = Jc2.toRequestOptions(UTF8ToString(leftPtr));
     var right = Jc2.toRequestOptions(UTF8ToString(rightPtr));
     var android = /Android/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.userAgent || '');
+    var ios = Jc2.isIOS();
     var service = JSON.parse(UTF8ToString(leftPtr)).optionalServices[0];
     var helperUrl = new URL('Joycon2Boost-test.apk', document.baseURI).href;
     var root = document.createElement('section');
@@ -62,10 +65,16 @@ var Joycon2WebControls = {
         root.appendChild(a); a.click(); a.remove();
       });
     }
+    if (ios && !navigator.bluetooth) {
+      // bluefy://open?url=… is what the reference Joy-Con 2 demo uses; without Bluefy installed iOS shows an error.
+      Jc2UI.button('Open in Bluefy', function () { location.href = 'bluefy://open?url=' + encodeURIComponent(location.href); });
+      Jc2UI.button('Get Bluefy', function () { location.href = 'https://apps.apple.com/app/id1492822055'; });
+    }
     var choose = function (options, tag) {
       if (!Jc2.running || Jc2.requesting || Jc2.armedGesture) return;
       Jc2UI.left.disabled = Jc2UI.right.disabled = true;
-      Jc2UI.feedback('Choose the blinking Joy-Con. Allow Chrome access to nearby devices if asked.');
+      Jc2UI.feedback(ios ? 'Choose the blinking Joy-Con. Allow Bluetooth access if asked.'
+        : 'Choose the blinking Joy-Con. Allow Chrome access to nearby devices if asked.');
       // No frame, Promise, or C# callback before requestDevice: preserves the tap's activation.
       Jc2.request(options, tag);
     };

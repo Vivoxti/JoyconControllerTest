@@ -87,6 +87,11 @@ namespace Joycon2
         public static double RefreshDelay = 1.5;
         public static double RefreshAttemptTimeout = 8.0;
         public static double RefreshTimeout = 120.0;
+        /// <summary>
+        /// Web only: a ready Joy-Con 2 streams reports nonstop (30+ Hz), so this much silence means the link is gone.
+        /// Bluefy (iOS) does not always fire gattserverdisconnected for links it did not close itself. 0 = off.
+        /// </summary>
+        public static double ReportSilenceTimeout = 3.0;
 
         public static IJoycon2Transport Transport { get; private set; }
         public static bool IsRunning { get; private set; }
@@ -490,6 +495,12 @@ namespace Joycon2
             {
                 c.refreshUntil = 0;
                 Debug.Log($"[Joycon2] {c.Name} {c.AddressText} reconnected after {now - c.ConnectStartTime:0.0} s");
+            }
+            if (ConnectsOnRequest && ReportSilenceTimeout > 0 && session.HasReport &&
+                now - session.LastReportTime > ReportSilenceTimeout)
+            {
+                Drop(c, $"no reports for {now - session.LastReportTime:0.0} s, link lost", RetryCooldown);
+                return;
             }
             if (c.Device == null) AddDevice(c);
 
