@@ -8,6 +8,11 @@ Joy-Con 2 — это не HID, а BLE с собственным GATT-серви�
 их сами не видят. Пакет подключается к ним напрямую и добавляет в Input System устройство `Joycon2Gamepad : Gamepad`,
 поэтому все биндинги `<Gamepad>/…` работают без изменений.
 
+![Два Joy-Con 2 — два игрока в KAGEFUMI](Documentation~/demo.gif)
+
+*Тестовая игра KAGEFUMI из этого репозитория в Unity Editor на macOS: Joy-Con 2 (R) и Joy-Con 2 (L) — игроки P1 и P2.
+Стик и кнопки — движение и прыжки, наклон Joy-Con (гироскоп) двигает солнце, а с ним и тени. Ускорено в 1,5 раза.*
+
 ## Установка
 
 **Package Manager → + → Add package from git URL…**
