@@ -1,22 +1,22 @@
-# Joy-Con 2 для Unity
+# Joy-Con 2 for Unity
 
-![Два Joy-Con 2 — два игрока в KAGEFUMI](Packages/com.vivoderin.joycon2/Documentation~/demo.gif)
+![Two Joy-Con 2, two players in KAGEFUMI](Packages/com.vivoderin.joycon2/Documentation~/demo.gif)
 
-Пара Joy-Con 2 от Nintendo Switch 2 — это сразу два геймпада для игры вдвоём. Один Joy-Con, повёрнутый боком, —
-полноценный контроллер со стиком, кнопками и гироскопом. Этот репозиторий подключает их к играм на Unity.
+A pair of Joy-Con 2 from the Nintendo Switch 2 is two gamepads for two players. Turned sideways, one Joy-Con is a
+complete controller with a stick, buttons and a gyroscope. This repository brings them to Unity games.
 
-- **Без консоли.** Joy-Con подключаются к компьютеру, телефону или браузеру напрямую по Bluetooth — Switch 2 не нужен.
-- **На всех основных платформах.** Windows, macOS, Android, iPhone и iPad, а также в браузере: Chrome и Edge, на iPhone —
-  Bluefy.
-- **Как обычный геймпад.** Игре не нужно ничего знать про Joy-Con: управление, настроенное под геймпад, работает сразу.
+- **No console needed.** Joy-Con connect straight to a computer, phone or browser over Bluetooth — no Switch 2 required.
+- **On all major platforms.** Windows, macOS, Android, iPhone and iPad, and in the browser: Chrome and Edge, or Bluefy on
+  iPhone.
+- **Just a gamepad.** The game doesn't need to know about Joy-Con: controls set up for a gamepad work right away.
 
-## Что внутри
+## What's inside
 
-- [**Пакет `com.vivoderin.joycon2`**](Packages/com.vivoderin.joycon2/README.md) — то, что подключается к вашей игре.
-  Установка и всё остальное — в его README.
-- **KAGEFUMI** (`Assets/Kagefumi/`) — дуэль на двоих «наступи на тень», на которой пакет проверяется на каждой
-  платформе. Она на видео выше.
+- [**The `com.vivoderin.joycon2` package**](Packages/com.vivoderin.joycon2/README.md) — what you add to your game.
+  Installation and everything else is in its README.
+- **KAGEFUMI** (`Assets/Kagefumi/`) — a two-player shadow-stepping duel used to test the package on every platform.
+  It's the game in the video above.
 
 ---
 
-Неофициальный проект, не связан с Nintendo. Nintendo Switch и Joy-Con — товарные знаки Nintendo.
+Unofficial project, not affiliated with Nintendo. Nintendo Switch and Joy-Con are trademarks of Nintendo.
