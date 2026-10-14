@@ -530,7 +530,8 @@ iPhone — демо mascii (Zenn, 2025-07), запись в контроллер
 - ☑ Проверка без железа: EditMode 63/63 (в т. ч. менеджер на фейковом транспорте), Node 18/18; чистый проект с пакетом из
   immutable-архива — тесты, компиляция под 5 платформ (release + dev), player-сборки iOS / macOS / WebGL; AAR,
   Android-помощник, macOS bundle и iOS .a пересобраны на Mac.
-- ☐ Пересобрать `Joycon2Ble.dll` и `Joycon2Boost.exe` на Windows (исходники изменены) и положить exe в `WebHelpers~`.
+- ☑ Пересобраны на Windows (MSVC 19.44, `Native~/windows/build.ps1`): `Joycon2Ble.dll` → `Runtime/Plugins/Windows/x86_64`,
+  `Joycon2Boost.exe` → `WebHelpers~`. На железе пока не проверены.
 - ☐ Прогон на железе после рефакторинга: Editor macOS/Windows, APK, iOS, WebGL — подключение двух Joy-Con, LED, гироскоп.
 
 ## 5. Критерии успеха (на каждой платформе)
