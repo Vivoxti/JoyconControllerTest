@@ -1,7 +1,7 @@
 # JoyconControllerTest
 
 Unity 6 (6000.3.18f1, URP, Input System 1.19) проект-эксперимент: можно ли подключить **два Joy-Con 2
-(Nintendo Switch 2)** к игре как **два независимых геймпада** — на Windows, macOS, Android и в WebGL
+(Nintendo Switch 2)** к игре как **два независимых геймпада** — на Windows, macOS, Android, iOS и в WebGL
 (Chrome/Edge на Win/Mac/Android, Bluefy на iOS/iPadOS).
 
 Тестовая игра — KAGEFUMI, дуэль на двоих: `Assets/Kagefumi/`. Раздача устройств игрокам —

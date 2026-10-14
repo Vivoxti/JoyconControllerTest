@@ -10,7 +10,7 @@
 >
 > Протокол (UUID, команды, разметка репорта): [PROTOCOL.md](PROTOCOL.md).
 
-Последнее обновление: 2026-10-14 (Фазы 1, A, B, C, D — работают на железе; C — 66 Гц с `joycon2boost.app`; D — частота поднята приватными опциями CoreBluetooth; E — два Joy-Con в Android Chrome работают на 60+ Гц, запуск помощника через Boost и возврат в Chrome подтверждены; F — нативный APK работает на Pixel 3 / Android 12, подтверждено пользователем; его Гц и длительный прогон ещё не записаны). Unity 6000.3.18f1, Input System 1.19.0.
+Последнее обновление: 2026-10-14 (Фазы 1, A, B, C, D — работают на железе; C — 66 Гц с `joycon2boost.app`; D — частота поднята приватными опциями CoreBluetooth; E — два Joy-Con в Android Chrome работают на 60+ Гц, запуск помощника через Boost и возврат в Chrome подтверждены; F — нативный APK работает на Pixel 3 / Android 12, подтверждено пользователем; его Гц и длительный прогон ещё не записаны; H — нативный iOS: два Joy-Con на iPhone 13 mini, 60+ Гц). Unity 6000.3.18f1, Input System 1.19.0.
 
 ---
 
@@ -43,10 +43,11 @@ Joy-Con 2 — **не** классический Bluetooth HID, как Joy-Con 1.
 | E | **WebGL** в Chrome на Android | Web Bluetooth | тот же `.jslib` | P2 |
 | F | **Android** нативно | `android.bluetooth.le` | Java/Kotlin AAR (или `AndroidJavaObject`) | P3 |
 | G | **WebGL** на iOS/iPadOS | Web Bluetooth через браузер **Bluefy** | тот же `.jslib` (фильтр по имени) | P4 |
+| H | **iOS/iPadOS** нативно | CoreBluetooth | тот же исходник, что у macOS → статическая `libJoycon2Ble.a` | сделано |
 
 Не поддерживается и не планируется: Safari и Firefox (нет Web Bluetooth; Chrome на iOS — это WebKit,
 тоже нет). Для них — понятное сообщение в UI + ссылка «открыть в Bluefy» на iOS.
-Бонус «на потом»: нативный iOS почти бесплатен поверх CoreBluetooth-плагина macOS.
+Нативный iOS (H) оказался почти бесплатным поверх CoreBluetooth-плагина macOS — см. Фазу H.
 
 Порядок работ: **0 → 1 → A → B/C → D → E → F → G**. Веб идёт рано, потому что дёшев
 (один `.jslib` закрывает сразу B, C, E, G) и даёт первую проверку на Mac ещё до нативного плагина.
@@ -471,6 +472,30 @@ Docs/Joycon2/      этот план + PROTOCOL.md + заметки по рез�
   облегчённый билд (сжатие текстур, без пост-процесса).
 - ☐ В Safari показывать ссылку `bluefy://open?url=…`.
 
+### Фаза H — iOS нативно ◐ (два Joy-Con на iPhone 13 mini / iOS 18.7.7, 60+ Гц; длительный прогон открыт)
+
+- ☑ Тот же `Native/macos/src/joycon2ble.m`: CoreBluetooth на iOS — тот же API. Отличие — только текст подсказки про
+  настройки (`TARGET_OS_IOS`). `Native/ios/build.sh` (`xcrun -sdk iphoneos`, arm64, iOS 15+) →
+  `Assets/Joycon2/Plugins/iOS/libJoycon2Ble.a` (плагин только для iOS, `FrameworkDependencies: CoreBluetooth`). Симулятора
+  нет — в нём нет Bluetooth.
+- ☑ C#: `Joycon2NativeTransport` с `DllImport("__Internal")` под `UNITY_IOS && !UNITY_EDITOR`, адреса `ios#N`. Ядро,
+  handshake, Input System, IMU — без изменений. Сообщения CoreBluetooth-состояний (off / unauthorized / unsupported) —
+  текстом (`Joycon2Manager.ScanStoppedStatus`, и для macOS).
+- ☑ `Joycon2IOSLifecycle`: `targetFrameRate = 60` (дефолт iOS — 30), запуск менеджера. Unity паузит на любом
+  «resign active» (диалог Bluetooth, шторка, Пункт управления): короткая пауза связь не трогает, после > 5 с (фон) — перезапуск,
+  нужен SYNC. Сенсорная панель — общий `Joycon2MobileControls` (Android + iOS, учитывает safe area): Connect/retry,
+  App settings (`app-settings:`), Details, Record.
+- ☑ `Kagefumi → Build iOS Xcode project (Joy-Con dev)` (`KagefumiIOSBuild`): IL2CPP Development, landscape,
+  `com.vivoderin.kagefumi`, автоподпись team `59P2VDSY5D` → `Builds/iOS/Xcode`; в Info.plist добавляются
+  `NSBluetoothAlwaysUsageDescription` (без него iOS убивает процесс, поля в Player Settings для iOS нет) и
+  `UIFileSharingEnabled` (дампы Record видны в «Файлах»). `Native/ios/deploy.sh [--console]` — xcodebuild с
+  `-allowProvisioningUpdates` → `devicectl` install + launch (телефон должен быть разблокирован для монтирования DDI).
+- ☑ **Железо (2026-10-14, TEST_LOG):** два Joy-Con — отдельные gamepad, LED P1/P2, MTU 512, готовность < 1 с;
+  пользователь: «все работает, частота 60+». Приватные опции низкой задержки (`CI frames 6`) действуют и на iOS.
+- ☐ 10 минут, шторка/фон/возврат с SYNC, гироскоп/SUN GRAB отдельно, iPad.
+- ☐ Приватные опции CoreBluetooth не пройдут App Store review — для раздачи вне TestFlight/dev это неважно; для Store без
+  них будет ~33 Гц.
+
 ---
 
 ## 5. Критерии успеха (на каждой платформе)
@@ -511,7 +536,6 @@ Docs/Joycon2/      этот план + PROTOCOL.md + заметки по рез�
   Input System — см. Фазу A+.)
 - HD-вибрация (сложный формат пакетов) — максимум простой пресет после MVP.
 - NFC, ИК-камера, аудио, GameCube/Pro Controller 2 (хотя протокол общий — бонусом может заработать).
-- Нативный iOS.
 
 ---
 

@@ -24,7 +24,14 @@ namespace Joycon2
             var go = new GameObject("Joycon2 Android permissions");
             DontDestroyOnLoad(go);
             instance = go.AddComponent<Joycon2AndroidLifecycle>();
-            go.AddComponent<Joycon2AndroidControls>();
+            var controls = go.AddComponent<Joycon2MobileControls>();
+            controls.Status = () => Status;
+            controls.Retry = ConnectOrRetry;
+            controls.SettingsButtons = new (string, Action)[]
+            {
+                ("Bluetooth settings", () => OpenSettings(true)),
+                ("App settings", () => OpenSettings(false)),
+            };
         }
 
         void Awake()
@@ -119,37 +126,6 @@ namespace Joycon2
                 using var result = intent.Call<AndroidJavaObject>("setData", package);
             }
             activity.Call("startActivity", intent);
-        }
-    }
-
-    /// <summary>Always available even when permissions were refused and the manager is not running.</summary>
-    sealed class Joycon2AndroidControls : MonoBehaviour
-    {
-        GUIStyle buttonStyle, labelStyle;
-        Joycon2DebugOverlay overlay;
-        void OnGUI()
-        {
-            var oldMatrix = GUI.matrix;
-            var oldDepth = GUI.depth;
-            GUI.depth = -100;
-            float scale = Mathf.Clamp(Screen.width / 1100f, 0.65f, 2f);
-            GUI.matrix = Matrix4x4.Scale(Vector3.one * scale);
-            buttonStyle ??= new GUIStyle(GUI.skin.button) { fontSize = 18 };
-            labelStyle ??= new GUIStyle(GUI.skin.label) { fontSize = 18 };
-            GUI.Box(new Rect(8, 8, 800, 85), GUIContent.none);
-            GUI.Label(new Rect(18, 12, 780, 28), "Joy-Con 2: " + Joycon2AndroidLifecycle.Status, labelStyle);
-            if (GUI.Button(new Rect(18, 44, 150, 38), "Connect / retry", buttonStyle)) Joycon2AndroidLifecycle.ConnectOrRetry();
-            if (GUI.Button(new Rect(178, 44, 180, 38), "Bluetooth settings", buttonStyle)) Joycon2AndroidLifecycle.OpenSettings(true);
-            if (GUI.Button(new Rect(368, 44, 140, 38), "App settings", buttonStyle)) Joycon2AndroidLifecycle.OpenSettings(false);
-            if (overlay == null) overlay = FindFirstObjectByType<Joycon2DebugOverlay>();
-            if (overlay != null)
-            {
-                if (GUI.Button(new Rect(518, 44, 130, 38), "Details", buttonStyle)) overlay.ToggleVisible();
-                if (GUI.Button(new Rect(658, 44, 140, 38), overlay.IsRecording ? "Stop recording" : "Record", buttonStyle))
-                    overlay.ToggleRecording();
-            }
-            GUI.matrix = oldMatrix;
-            GUI.depth = oldDepth;
         }
     }
 }

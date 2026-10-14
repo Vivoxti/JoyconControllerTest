@@ -63,7 +63,7 @@ namespace Joycon2
                     richText = false,
                     wordWrap = false,
                 };
-#if UNITY_ANDROID && !UNITY_EDITOR
+#if (UNITY_ANDROID || UNITY_IOS) && !UNITY_EDITOR
                 style.fontSize = 18;
 #endif
 #if !UNITY_WEBGL || UNITY_EDITOR
@@ -127,11 +127,14 @@ namespace Joycon2
 
             var content = new GUIContent(text.ToString());
             var size = style.CalcSize(content);
-#if UNITY_ANDROID && !UNITY_EDITOR
+#if (UNITY_ANDROID || UNITY_IOS) && !UNITY_EDITOR
+            // Below the touch panel (Joycon2MobileControls), inside the safe area.
             var oldMatrix = GUI.matrix;
-            float scale = Mathf.Min(Mathf.Clamp(Screen.width / 1100f, 0.65f, 2f), (Screen.width - 20f) / (size.x + 10f));
-            GUI.matrix = Matrix4x4.Scale(Vector3.one * scale);
-            GUI.Box(new Rect(10, 105f * Mathf.Clamp(Screen.width / 1100f, 0.65f, 2f) / scale, size.x + 10, size.y + 6), content, style);
+            var safe = Screen.safeArea;
+            float scale = Mathf.Min(Joycon2MobileControls.UiScale, (safe.width - 20f) / (size.x + 10f));
+            GUI.matrix = Matrix4x4.TRS(new Vector3(safe.xMin, Screen.height - safe.yMax, 0), Quaternion.identity, Vector3.one * scale);
+            GUI.Box(new Rect(10, Joycon2MobileControls.PanelBottom * Joycon2MobileControls.UiScale / scale, size.x + 10, size.y + 6),
+                    content, style);
             GUI.matrix = oldMatrix;
 #else
             GUI.Box(new Rect(10, 10, size.x + 10, size.y + 6), content, style);

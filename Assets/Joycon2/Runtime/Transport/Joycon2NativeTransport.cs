@@ -1,23 +1,28 @@
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN || UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN || UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX || (UNITY_IOS && !UNITY_EDITOR)
 using System;
 using System.Runtime.InteropServices;
 
 namespace Joycon2
 {
     /// <summary>
-    /// Native BLE plugin with one C ABI (Native/windows/include/joycon2ble.h) on two platforms:
+    /// Native BLE plugin with one C ABI (Native/windows/include/joycon2ble.h) on three platforms:
     /// Windows — WinRT, Plugins/Windows/x86_64/Joycon2Ble.dll (sources: Native/windows);
-    /// macOS — CoreBluetooth, Plugins/macOS/Joycon2Ble.bundle (sources: Native/macos).
+    /// macOS — CoreBluetooth, Plugins/macOS/Joycon2Ble.bundle (sources: Native/macos);
+    /// iOS — the same CoreBluetooth source, statically linked: Plugins/iOS/libJoycon2Ble.a (Native/ios/build.sh).
     /// Same plugin for Editor and player, Mono and IL2CPP. Note: once loaded, the Editor keeps it until it is closed.
     /// </summary>
     public sealed class Joycon2NativeTransport : IJoycon2Transport
     {
-        const string Lib = "Joycon2Ble";
         const int ExpectedVersion = 1;
         const int ErrorNoUsageDescription = -2;
-#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
+#if UNITY_IOS && !UNITY_EDITOR
+        const string Lib = "__Internal";
+        const string Plugin = "libJoycon2Ble.a", Sources = "Native/ios/build.sh";
+#elif UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
+        const string Lib = "Joycon2Ble";
         const string Plugin = "Joycon2Ble.bundle", Sources = "Native/macos/build.sh";
 #else
+        const string Lib = "Joycon2Ble";
         const string Plugin = "Joycon2Ble.dll", Sources = "Native/windows/build.ps1";
 #endif
 
@@ -44,7 +49,10 @@ namespace Joycon2
 
         bool initialized;
 
-#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
+#if UNITY_IOS && !UNITY_EDITOR
+        public string Name => "CoreBluetooth (iOS)";
+        public string LocalAddressPrefix => "ios";
+#elif UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
         public string Name => "CoreBluetooth";
         /// <summary>CoreBluetooth hides Bluetooth addresses: the plugin numbers peripherals per process.</summary>
         public string LocalAddressPrefix => "mac";
@@ -67,8 +75,9 @@ namespace Joycon2
                 }
                 int result = jc2_init();
                 if (result == ErrorNoUsageDescription)
-                    UnityEngine.Debug.LogError("[Joycon2] Info.plist has no NSBluetoothAlwaysUsageDescription, macOS would kill the app " +
-                                               "on Bluetooth access: fill Player Settings → macOS → Bluetooth Usage Description.");
+                    UnityEngine.Debug.LogError("[Joycon2] Info.plist has no NSBluetoothAlwaysUsageDescription, the OS would kill the app " +
+                                               "on Bluetooth access: macOS — fill Player Settings → macOS → Bluetooth Usage Description; " +
+                                               "iOS — build with Kagefumi → Build iOS (it adds the key).");
                 initialized = result == 0;
             }
             catch (Exception e) when (e is DllNotFoundException || e is EntryPointNotFoundException)

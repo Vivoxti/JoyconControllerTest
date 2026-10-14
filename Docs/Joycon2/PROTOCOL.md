@@ -186,6 +186,9 @@ Report ID в BLE-репорте нет; L и R шлют одинаковый ф�
   `BluetoothLEDevice.RequestPreferredConnectionParameters(ThroughputOptimized)` (так делает joycon2cpp;
   мы тоже) → проверено: 15 мс, ~66 Гц. Запрос действует на соединение, а не на процесс: им можно ускорить и
   Joy-Con, подключённый Chrome'ом (`Joycon2Boost.exe`), пока объект запроса жив. Частые повторные коннекты подряд → контроллер «глохнет» на несколько минут: нужен back-off.
+- **iOS:** тот же CoreBluetooth, что на macOS, и те же квирки (MAC скрыт, имя в рекламе `null` → сторона по PID, без
+  `NSBluetoothAlwaysUsageDescription` процесс убивается). Дефолтный интервал 30 мс; приватные опции подключения (см. macOS)
+  на iOS 18.7 тоже работают → 60+ Гц (проверено на iPhone 13 mini). MTU 512.
 - **macOS:** keep-alive 1 Гц. **Частота:** публичного API для connection interval нет, Joy-Con его не просит → дефолт
   macOS **30 мс ≈ 33 Гц** (проверено; switch2mac видел то же: interval 24 × 1,25 мс). Обход — приватные ключи опций
   `connectPeripheral:options:` (их читает `bluetoothd`, так делает JamCon, MIT): `kCBConnectOptionRequiresLowLatency`,

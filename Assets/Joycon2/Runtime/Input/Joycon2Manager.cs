@@ -149,6 +149,8 @@ namespace Joycon2
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
             if (AutoStart) Joycon2AndroidLifecycle.EnsureStarted();
+#elif UNITY_IOS && !UNITY_EDITOR
+            if (AutoStart) Joycon2IOSLifecycle.EnsureStarted();
 #else
             if (AutoStart) Start();
 #endif
@@ -276,7 +278,7 @@ namespace Joycon2
 
         static IJoycon2Transport CreateTransport()
         {
-#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN || UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX
+#if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN || UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX || (UNITY_IOS && !UNITY_EDITOR)
             return new Joycon2NativeTransport();
 #elif UNITY_WEBGL
             return new Joycon2WebBluetoothTransport();
@@ -360,11 +362,24 @@ namespace Joycon2
                     {
                         IsScanning = false;
                         scanRetryAt = now + 5;
-                        Status = $"scan stopped (error {e.Status}) — is Bluetooth on?";
+                        Status = ScanStoppedStatus(e.Status);
                         Debug.LogWarning($"[Joycon2] {Status}");
                     }
                     break;
             }
+        }
+
+        /// <summary>CoreBluetooth (macOS, iOS) reports its CBManagerState; WinRT and Android — an error code.</summary>
+        static string ScanStoppedStatus(int status)
+        {
+            if (Transport != null && Transport.Name.StartsWith("CoreBluetooth"))
+                switch (status)
+                {
+                    case 2: return "Bluetooth LE is not supported on this device";
+                    case 3: return "Bluetooth access denied — allow it in Settings → Privacy & Security → Bluetooth";
+                    case 4: return "Bluetooth is off — turn it on";
+                }
+            return $"scan stopped (error {status}) — is Bluetooth on?";
         }
 
         static void OnDeviceFound(in Joycon2TransportEvent e, int length, double now)

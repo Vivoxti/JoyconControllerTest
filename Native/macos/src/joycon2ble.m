@@ -1,4 +1,5 @@
-// Joycon2Ble for macOS — CoreBluetooth implementation of Native/windows/include/joycon2ble.h.
+// Joycon2Ble for macOS and iOS — CoreBluetooth implementation of Native/windows/include/joycon2ble.h.
+// macOS: Native/macos/build.sh → Joycon2Ble.bundle; iOS: Native/ios/build.sh → libJoycon2Ble.a (same source).
 //
 // Design:
 //  - One serial dispatch queue owns the CBCentralManager and every CBPeripheral: all CoreBluetooth calls
@@ -88,6 +89,12 @@ static void Log(int level, const char* format, ...)
     size_t length = (size_t)n < sizeof(text) - 1 ? (size_t)n : sizeof(text) - 1;
     PushEvent(JC2_EVENT_LOG, 0, 0, level, 0, 0, text, length);
 }
+
+#if TARGET_OS_IOS
+#define JC2_PRIVACY_HINT "Settings → Privacy & Security → Bluetooth"
+#else
+#define JC2_PRIVACY_HINT "System Settings → Privacy & Security → Bluetooth"
+#endif
 
 static const char* Str(NSString* s) { return s ? s.UTF8String : "(null)"; }
 
@@ -270,7 +277,7 @@ static void FlushWrites(JC2Device* d)
     CBManagerState state = central.state;
     Log(state == CBManagerStatePoweredOn ? 0 : 1, "Bluetooth %s", StateName(state));
     if (state == CBManagerStateUnauthorized)
-        Log(2, "Bluetooth access denied for %s: System Settings → Privacy & Security → Bluetooth",
+        Log(2, "Bluetooth access denied for %s: " JC2_PRIVACY_HINT,
             Str(NSProcessInfo.processInfo.processName));
 
     if (state == CBManagerStatePoweredOn)
@@ -466,8 +473,9 @@ JC2_API int32_t jc2_version(void) { return JC2_VERSION; }
 
 JC2_API int32_t jc2_init(void)
 {
-    // Without this key macOS kills the process on the first CoreBluetooth call (TCC). The Unity Editor has
-    // it; a player gets it from Player Settings → macOS → Bluetooth Usage Description.
+    // Without this key macOS and iOS kill the process on the first CoreBluetooth call (TCC). The Unity Editor has
+    // it; a macOS player gets it from Player Settings → macOS → Bluetooth Usage Description, an iOS player from
+    // KagefumiIOSBuild's post-process step.
     if (![NSBundle.mainBundle objectForInfoDictionaryKey:@"NSBluetoothAlwaysUsageDescription"])
         return JC2_ERROR_NO_USAGE_DESCRIPTION;
 
@@ -485,7 +493,7 @@ JC2_API int32_t jc2_init(void)
         g_delegate = [JC2Central new];
         g_delegate.alive = YES;
         if (CBManager.authorization == CBManagerAuthorizationDenied)
-            Log(2, "Bluetooth access denied for %s: System Settings → Privacy & Security → Bluetooth",
+            Log(2, "Bluetooth access denied for %s: " JC2_PRIVACY_HINT,
                 Str(NSProcessInfo.processInfo.processName));
         g_central = [[CBCentralManager alloc] initWithDelegate:g_delegate
                                                          queue:g_queue
