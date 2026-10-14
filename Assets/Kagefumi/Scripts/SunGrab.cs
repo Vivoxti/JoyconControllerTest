@@ -52,7 +52,7 @@ namespace Kagefumi
             cooldown = interval;
             day.sunTilt = Quaternion.identity;
             for (int i = 0; i < 2; i++)
-                (game.DeviceOf(i) as Joycon2Gamepad)?.Controller?.Orientation.Recenter();
+                (game.DeviceOf(i) as Joycon2Gamepad)?.Recenter();
         }
 
         void Update()
@@ -86,7 +86,7 @@ namespace Kagefumi
             timeLeft = duration;
             day.clockScale = 0f;
             // The zero must not follow the player's hand while they steer.
-            if (pad.Controller != null) pad.Controller.Orientation.AutoCenter = false;
+            pad.AutoCenter = false;
 
             var p = game.players[player];
             hud.Toast($"P{player + 1} GRABS THE SUN!  tilt the Joy-Con", p.color, 2.6f);
@@ -129,7 +129,7 @@ namespace Kagefumi
         {
             if (Holder < 0) return;
             Holder = -1;
-            if (holderPad != null && holderPad.Controller != null) holderPad.Controller.Orientation.AutoCenter = true;
+            if (holderPad != null) holderPad.AutoCenter = true;
             holderPad = null;
             cooldown = interval;
             day.clockScale = 1f;

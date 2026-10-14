@@ -259,6 +259,14 @@
       },
       "url": "https://packages.unity.com"
     },
+    "com.vivoderin.joycon2": {
+      "version": "file:com.vivoderin.joycon2",
+      "depth": 0,
+      "source": "embedded",
+      "dependencies": {
+        "com.unity.inputsystem": "1.19.0"
+      }
+    },
     "com.unity.modules.accessibility": {
       "version": "1.0.0",
       "depth": 0,

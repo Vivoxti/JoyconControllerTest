@@ -1,0 +1,29 @@
+{
+  "name": "com.vivoderin.joycon2",
+  "version": "1.0.0",
+  "displayName": "Joy-Con 2 Input",
+  "description": "Nintendo Switch 2 Joy-Con over Bluetooth LE as Input System gamepads: one Joy-Con held sideways = one player. Buttons, stick, gyro, accelerometer and attitude on Windows, macOS, Android, iOS and WebGL (Chrome/Edge, Bluefy). Native BLE plugins included.",
+  "unity": "6000.0",
+  "keywords": ["joy-con", "joycon", "switch 2", "bluetooth", "ble", "gamepad", "gyro", "input system"],
+  "author": {
+    "name": "Vivoderin",
+    "url": "https://github.com/Vivoxti/JoyconControllerTest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Vivoxti/JoyconControllerTest.git",
+    "directory": "Packages/com.vivoderin.joycon2"
+  },
+  "documentationUrl": "https://github.com/Vivoxti/JoyconControllerTest/blob/main/Packages/com.vivoderin.joycon2/README.md",
+  "changelogUrl": "https://github.com/Vivoxti/JoyconControllerTest/blob/main/Packages/com.vivoderin.joycon2/CHANGELOG.md",
+  "dependencies": {
+    "com.unity.inputsystem": "1.19.0"
+  },
+  "samples": [
+    {
+      "displayName": "Two Players",
+      "description": "Minimal two-player setup: each Joy-Con 2 moves its own cube; tilt and Select recenter; a Connect button for WebGL.",
+      "path": "Samples~/TwoPlayers"
+    }
+  ]
+}

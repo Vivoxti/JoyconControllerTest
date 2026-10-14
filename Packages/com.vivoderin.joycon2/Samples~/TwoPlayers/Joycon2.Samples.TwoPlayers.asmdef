@@ -1,0 +1,17 @@
+{
+    "name": "Joycon2.Samples.TwoPlayers",
+    "rootNamespace": "Joycon2.Samples",
+    "references": [
+        "Joycon2.Runtime",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -11,7 +11,6 @@ namespace Kagefumi.EditorTools
     {
         const string Scene = "Assets/Kagefumi/Scenes/Kagefumi.unity";
         const string Output = "Builds/Android/Kagefumi-Joycon2-dev.apk";
-        const string Plugin = "Assets/Joycon2/Plugins/Android/joycon2ble.aar";
 
         [MenuItem("Kagefumi/Configure Android (Joy-Con test)")]
         public static void Configure()
@@ -24,14 +23,8 @@ namespace Kagefumi.EditorTools
             if (string.IsNullOrEmpty(id) || id.StartsWith("com.UnityTechnologies."))
                 PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.Android, "com.vivoderin.kagefumi");
             EditorUserBuildSettings.buildAppBundle = false;
-            var importer = AssetImporter.GetAtPath(Plugin) as PluginImporter;
-            if (importer == null) throw new FileNotFoundException("Build Native/android/build.ps1 before the APK", Plugin);
-            importer.SetCompatibleWithAnyPlatform(false);
-            importer.SetCompatibleWithEditor(false);
-            importer.SetCompatibleWithPlatform(BuildTarget.Android, true);
-            importer.SaveAndReimport();
             AssetDatabase.SaveAssets();
-            Debug.Log("[Kagefumi] Android configured: ARM64 / IL2CPP / landscape / native BLE AAR");
+            Debug.Log("[Kagefumi] Android configured: ARM64 / IL2CPP / landscape");
         }
 
         [MenuItem("Kagefumi/Build Android APK (Joy-Con dev)")]

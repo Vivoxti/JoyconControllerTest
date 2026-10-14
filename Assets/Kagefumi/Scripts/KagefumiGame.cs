@@ -274,7 +274,7 @@ namespace Kagefumi
 
         string MacBoostNotice(float slow)
         {
-            bool bothIn = Joycon2.Joycon2Manager.Controllers.Count >= Joycon2.Joycon2Manager.MaxControllers;
+            bool bothIn = Joycon2.Joycon2Manager.Controllers.Count >= Joycon2.Joycon2Manager.Settings.MaxControllers;
             switch (boostStage)
             {
                 case BoostStage.Launched:
@@ -292,11 +292,11 @@ namespace Kagefumi
 
         /// <summary>
         /// Mac + browser (with joycon2boost): the first Joy-Con keeps a slow link until it is rebuilt, which needs SYNC on
-        /// it (Joycon2Manager.RefreshSlowLinks). Rebuilds start only between rounds; the notice says what to do.
+        /// it (Joycon2Settings.RefreshSlowLinks). Rebuilds start only between rounds; the notice says what to do.
         /// </summary>
         void UpdateLinkRefresh()
         {
-            Joycon2.Joycon2Manager.RefreshSlowLinks = CurrentState != State.Playing && CurrentState != State.Countdown;
+            Joycon2.Joycon2Manager.Settings.RefreshSlowLinks = CurrentState != State.Playing && CurrentState != State.Countdown;
             Joycon2.Joycon2Controller waiting = null;
             foreach (var c in Joycon2.Joycon2Manager.Controllers)
                 if (c.Refreshing) waiting = c;

@@ -44,6 +44,8 @@ sysinfo.txt
 
 # Builds
 *.apk
+# The Joy-Con 2 package ships its web rate helpers.
+!/Packages/com.vivoderin.joycon2/WebHelpers~/*.apk
 *.aab
 *.unitypackage
 *.app
