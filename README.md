@@ -20,3 +20,4 @@ complete controller with a stick, buttons and a gyroscope. This repository bring
 ---
 
 Unofficial project, not affiliated with Nintendo. Nintendo Switch and Joy-Con are trademarks of Nintendo.
+
